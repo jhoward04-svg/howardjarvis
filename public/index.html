@@ -6,87 +6,228 @@
 <meta name="robots" content="noindex">
 <title>J.A.R.V.I.S.</title>
 <style>
-  :root { --bg:#04070d; --panel:rgba(8,18,32,.78); --line:rgba(58,200,255,.28); --text:#d6f3ff; --dim:#6fa3bd;
-          --accent:#3ac8ff; --accent-2:#ffc34d; --danger:#ff5d73; --glow:0 0 18px rgba(58,200,255,.18); }
+  :root { --bg:#04070d; --panel:rgba(8,18,32,.78); --line:rgba(58,200,255,.26); --text:#d6f3ff; --dim:#6fa3bd;
+          --accent:#3ac8ff; --accent-2:#ffc34d; --good:#38e8a0; --danger:#ff5d73; --violet:#a78bfa; --glow:0 0 18px rgba(58,200,255,.16); }
   * { box-sizing: border-box; }
-  body { margin:0; color:var(--text); min-height:100vh;
-    font:16px/1.45 Bahnschrift,"Segoe UI",system-ui,sans-serif; letter-spacing:.02em;
+  html { scroll-behavior:smooth; }
+  body { margin:0; color:var(--text); min-height:100vh; font:15px/1.4 Bahnschrift,"Segoe UI",system-ui,sans-serif; letter-spacing:.02em;
     background:
-      radial-gradient(1100px 600px at 50% -10%, rgba(58,200,255,.14), transparent 60%),
-      linear-gradient(rgba(58,200,255,.045) 1px, transparent 1px) 0 0/44px 44px,
-      linear-gradient(90deg, rgba(58,200,255,.045) 1px, transparent 1px) 0 0/44px 44px,
-      var(--bg); }
+      radial-gradient(1100px 600px at 55% -10%, rgba(58,200,255,.14), transparent 60%),
+      linear-gradient(rgba(58,200,255,.04) 1px, transparent 1px) 0 0/44px 44px,
+      linear-gradient(90deg, rgba(58,200,255,.04) 1px, transparent 1px) 0 0/44px 44px, var(--bg); }
   [hidden] { display:none !important; }
   button, input, textarea { font:inherit; color:inherit; letter-spacing:inherit; }
-  input, textarea { background:rgba(2,10,20,.85); border:1px solid var(--line); border-radius:4px; padding:10px 12px; width:100%; outline:none; }
+  input, textarea { background:rgba(2,10,20,.85); border:1px solid var(--line); border-radius:6px; padding:9px 12px; width:100%; outline:none; }
   input:focus, textarea:focus { border-color:var(--accent); box-shadow:var(--glow); }
   ::placeholder { color:#4b7388; }
-  button { background:linear-gradient(180deg, rgba(58,200,255,.28), rgba(58,200,255,.12)); color:var(--text);
-    border:1px solid var(--accent); border-radius:4px; padding:10px 16px; cursor:pointer;
-    text-transform:uppercase; font-size:.8rem; letter-spacing:.14em; }
-  button:hover { box-shadow:var(--glow); background:rgba(58,200,255,.35); }
+  button { background:linear-gradient(180deg, rgba(58,200,255,.26), rgba(58,200,255,.1)); color:var(--text); border:1px solid var(--accent);
+    border-radius:6px; padding:9px 14px; cursor:pointer; text-transform:uppercase; font-size:.74rem; letter-spacing:.14em; }
+  button:hover { box-shadow:var(--glow); background:rgba(58,200,255,.34); }
   button:disabled { opacity:.5; cursor:wait; }
   button.ghost { background:transparent; color:var(--dim); border-color:var(--line); }
   button.ghost:hover { color:var(--text); }
+  .err { color:var(--danger); min-height:1.1em; font-size:.85rem; }
 
-  /* login */
+  /* ---------- login ---------- */
   #login { max-width:340px; margin:4vh auto 0; padding:0 16px; display:grid; gap:12px; text-align:center; }
   #login img { width:280px; height:280px; margin:0 auto; filter:drop-shadow(0 0 22px var(--accent)); animation:breathe 4s ease-in-out infinite; }
   #login h1 { margin:0; font-size:1.5rem; letter-spacing:.45em; text-indent:.45em; text-shadow:0 0 14px var(--accent); }
   #login p { margin:0 0 4px; color:var(--dim); font-size:.8rem; letter-spacing:.18em; text-transform:uppercase; }
   @keyframes breathe { 50% { filter:drop-shadow(0 0 36px var(--accent)) brightness(1.25); } }
 
-  header { display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border-bottom:1px solid var(--line);
-    background:rgba(4,10,20,.7); backdrop-filter:blur(6px); }
-  header h1 { margin:0; font-size:1.05rem; letter-spacing:.4em; text-shadow:0 0 12px var(--accent); }
-  header small { color:var(--dim); letter-spacing:.2em; font-size:.65rem; text-transform:uppercase; margin-left:14px; }
-  main { display:grid; grid-template-columns:1fr 350px; gap:16px; padding:16px; max-width:1150px; margin:0 auto; height:calc(100vh - 58px); }
-  @media (max-width:800px) { main { grid-template-columns:1fr; height:auto; } #chatbox { height:75vh; } header small { display:none; } }
-  section { background:var(--panel); border:1px solid var(--line); box-shadow:var(--glow), inset 0 0 40px rgba(58,200,255,.04);
-    border-radius:4px; padding:14px; display:flex; flex-direction:column; min-height:0; position:relative; }
-  section::before, section::after { content:""; position:absolute; width:14px; height:14px; border:2px solid var(--accent); pointer-events:none; }
-  section::before { top:-1px; left:-1px; border-right:0; border-bottom:0; }
-  section::after { bottom:-1px; right:-1px; border-left:0; border-top:0; }
-  h2 { margin:0 0 10px; font-size:.72rem; letter-spacing:.3em; text-transform:uppercase; color:var(--accent); }
-  #log { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-bottom:8px; }
-  .msg { max-width:85%; padding:8px 12px; border-radius:4px; white-space:pre-wrap; word-wrap:break-word; }
-  .msg.user { align-self:flex-end; background:rgba(58,200,255,.18); border:1px solid var(--accent); }
-  .msg.assistant { align-self:flex-start; background:rgba(2,10,20,.85); border:1px solid var(--line); border-left:3px solid var(--accent-2); }
-  form.row { display:flex; gap:8px; }
-  #side { display:flex; flex-direction:column; gap:16px; overflow-y:auto; }
-  ul { list-style:none; margin:0 0 10px; padding:0; display:grid; gap:6px; }
-  li { display:flex; gap:8px; align-items:flex-start; }
-  li.done span { text-decoration:line-through; color:var(--dim); }
-  li small { color:var(--dim); display:block; }
-  li .x { margin-left:auto; background:none; border:0; color:var(--dim); padding:0 6px; }
-  li input[type=checkbox] { accent-color:var(--accent); }
-  .err { color:var(--danger); min-height:1.2em; }
-  #mic.listening { background:var(--danger); border-color:var(--danger); color:#fff; animation:pulse 1.2s infinite; }
-  @keyframes pulse { 50% { opacity:.6; } }
+  /* ---------- shell ---------- */
+  #app { display:grid; grid-template-columns:214px minmax(0,1fr); grid-template-rows:auto 1fr auto; min-height:100vh; }
+  #sidebar { grid-row:1 / -1; display:flex; flex-direction:column; gap:14px; padding:14px 12px; border-right:1px solid var(--line);
+    background:rgba(4,10,20,.78); backdrop-filter:blur(6px); position:sticky; top:0; height:100vh; overflow-y:auto; }
+  #brand { display:flex; align-items:center; gap:10px; padding:4px 4px 10px; border-bottom:1px solid var(--line); }
+  #brand img { width:44px; height:44px; filter:drop-shadow(0 0 8px var(--accent)); }
+  #brand b { display:block; letter-spacing:.35em; font-size:1.05rem; text-shadow:0 0 10px var(--accent); }
+  #brand small { display:block; color:var(--dim); letter-spacing:.3em; font-size:.55rem; text-transform:uppercase; }
+  #nav { display:grid; gap:6px; }
+  .nav { display:flex; align-items:center; gap:10px; width:100%; text-align:left; text-transform:none; letter-spacing:.04em; font-size:.9rem;
+    background:transparent; border:1px solid transparent; color:var(--text); padding:9px 10px; }
+  .nav.active { background:rgba(58,200,255,.16); border-color:var(--accent); box-shadow:inset 0 0 14px rgba(58,200,255,.12); }
+  .nav .badge { margin-left:auto; min-width:22px; text-align:center; font-size:.7rem; padding:1px 6px; border-radius:99px; background:rgba(58,200,255,.2); border:1px solid var(--line); }
+  #voiceBox { margin-top:auto; border:1px solid var(--line); border-radius:8px; padding:10px; display:grid; gap:8px; justify-items:center; background:rgba(2,10,20,.6); }
+  #voiceBox h3 { margin:0; width:100%; font-size:.62rem; letter-spacing:.3em; color:var(--accent); font-weight:600; }
+  #wave { display:flex; align-items:center; gap:2px; height:34px; width:100%; justify-content:center; }
+  #wave i { width:3px; height:30px; border-radius:2px; background:var(--accent); opacity:.85; transform:scaleY(calc(.12 + var(--lv,0) * var(--k))); transition:transform .08s; }
+  #voiceText { font-size:.78rem; color:var(--dim); }
+  #convo { width:74px; height:74px; border-radius:50%; padding:0; font-size:1.6rem; display:grid; place-items:center;
+    background:radial-gradient(circle, rgba(58,200,255,.35), rgba(58,200,255,.08)); box-shadow:0 0 0 6px rgba(58,200,255,.1), var(--glow); }
+  #convo[aria-pressed="true"] { border-color:var(--danger); background:radial-gradient(circle, rgba(255,93,115,.5), rgba(255,93,115,.1)); animation:pulse 1.6s infinite; }
+  #convoLabel { font-size:.7rem; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin-top:-2px; }
+  #voiceOpts { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+  #voiceOpts button { padding:4px 8px; font-size:.6rem; }
 
-  /* Orb: --level (0..1) is set every frame from JS (mic volume / speech / idle breathing). */
-  #orbWrap { display:flex; flex-direction:column; align-items:center; gap:4px; padding:4px 0 10px; }
-  #orb { --level:0; --tint:#3ac8ff; position:relative; width:clamp(170px, 38vh, 320px); height:clamp(170px, 38vh, 320px); display:grid; place-items:center; }
+  #topbar { display:flex; align-items:center; gap:14px; padding:10px 18px; border-bottom:1px solid var(--line); background:rgba(4,10,20,.6); backdrop-filter:blur(6px); }
+  #status { display:flex; align-items:center; gap:8px; padding:6px 12px; border:1px solid var(--line); border-radius:99px; font-size:.65rem; letter-spacing:.18em; text-transform:uppercase; white-space:nowrap; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--good); box-shadow:0 0 8px var(--good); display:inline-block; }
+  .dot.bad { background:var(--danger); box-shadow:0 0 8px var(--danger); }
+  #clockBox { flex:1; text-align:center; line-height:1.15; }
+  #date { font-size:.78rem; color:var(--dim); letter-spacing:.1em; }
+  #clock { font-size:1.45rem; letter-spacing:.14em; color:var(--accent); text-shadow:0 0 14px rgba(58,200,255,.6); font-variant-numeric:tabular-nums; }
+  #search { max-width:240px; }
+  #operator { display:flex; align-items:center; gap:10px; padding:4px 6px 4px 14px; border:1px solid var(--line); border-radius:99px; font-size:.8rem; white-space:nowrap; }
+  #operator small { display:block; color:var(--dim); font-size:.6rem; letter-spacing:.14em; text-transform:uppercase; }
+  #operator button { padding:6px 10px; border-radius:99px; }
+
+  /* ---------- panel grid ---------- */
+  #grid { display:grid; gap:12px; padding:12px 16px; grid-template-columns:minmax(230px,.8fr) minmax(300px,1.5fr) minmax(280px,.95fr);
+    grid-template-rows:minmax(340px,1.35fr) minmax(200px,auto) minmax(200px,auto);
+    grid-template-areas:"core hero convo" "tasks timeline quick" "rings insights memory"; align-content:start; }
+  .panel { background:var(--panel); border:1px solid var(--line); box-shadow:var(--glow), inset 0 0 40px rgba(58,200,255,.04); border-radius:8px; padding:12px 14px; min-height:0; position:relative; display:flex; flex-direction:column; }
+  .panel::before, .panel::after { content:""; position:absolute; width:12px; height:12px; border:2px solid var(--accent); pointer-events:none; opacity:.8; }
+  .panel::before { top:-1px; left:-1px; border-right:0; border-bottom:0; border-top-left-radius:8px; }
+  .panel::after { bottom:-1px; right:-1px; border-left:0; border-top:0; border-bottom-right-radius:8px; }
+  .panel h2 { margin:0 0 10px; font-size:.68rem; letter-spacing:.3em; text-transform:uppercase; color:var(--accent); display:flex; justify-content:space-between; align-items:center; }
+  .panel h2 span { color:var(--dim); letter-spacing:.1em; font-size:.62rem; }
+  #p-core { grid-area:core; } #p-hero { grid-area:hero; } #p-convo { grid-area:convo; }
+  #p-tasks { grid-area:tasks; } #p-timeline { grid-area:timeline; } #p-quick { grid-area:quick; }
+  #p-rings { grid-area:rings; } #p-insights { grid-area:insights; } #p-memory { grid-area:memory; }
+
+  .rows { display:grid; gap:6px; margin:0; padding:0; list-style:none; }
+  .row { display:flex; align-items:center; gap:10px; padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:rgba(2,10,20,.55); }
+  .row .ic { width:28px; height:28px; border-radius:7px; display:grid; place-items:center; background:rgba(58,200,255,.14); flex:none; }
+  .row b { display:block; font-weight:600; font-size:.85rem; }
+  .row small { display:block; color:var(--good); font-size:.7rem; }
+  .row small.warn { color:var(--accent-2); } .row small.bad { color:var(--danger); } .row small.mute { color:var(--dim); }
+
+  /* hero */
+  #p-hero { align-items:center; justify-content:center; text-align:center; overflow:hidden;
+    background:radial-gradient(circle at 50% 45%, rgba(58,200,255,.12), transparent 62%), var(--panel); }
+  #p-hero h1 { margin:6px 0 0; font-size:clamp(1.6rem,3.2vw,2.6rem); letter-spacing:.5em; text-indent:.5em; text-shadow:0 0 20px var(--accent); }
+  #p-hero .sub { letter-spacing:.5em; text-indent:.5em; font-size:.8rem; color:var(--accent); margin-top:2px; }
+  #orbState { font-size:.7rem; letter-spacing:.35em; text-transform:uppercase; color:var(--dim); text-indent:.35em; margin-top:6px; }
+  #orb { --level:0; --tint:#3ac8ff; position:relative; width:clamp(190px, 30vh, 330px); height:clamp(190px, 30vh, 330px); display:grid; place-items:center; }
   #orb::after { content:""; position:absolute; inset:6%; border-radius:50%; z-index:0;
     background:radial-gradient(circle, rgba(58,200,255,calc(.16 + var(--level) * .3)) 0%, rgba(58,200,255,.04) 60%, transparent 72%); }
-  #orb img { position:relative; z-index:1; width:100%; height:100%; user-select:none; pointer-events:none;
-    transform:scale(calc(1 + var(--level) * .08));
+  #orb img { position:relative; z-index:1; width:100%; height:100%; user-select:none; pointer-events:none; transform:scale(calc(1 + var(--level) * .08));
     filter:brightness(calc(1.05 + var(--level) * .5)) drop-shadow(0 0 calc(8px + var(--level) * 34px) var(--tint)); }
-  #orb::before { content:""; position:absolute; inset:-8px; border-radius:50%; border:2px dashed var(--tint); z-index:1;
-    opacity:calc(.25 + var(--level) * .6); animation:spin 14s linear infinite; }
+  #orb::before { content:""; position:absolute; inset:-8px; border-radius:50%; border:2px dashed var(--tint); z-index:1; opacity:calc(.25 + var(--level) * .6); animation:spin 14s linear infinite; }
   #orb[data-state="thinking"]::before { animation-duration:2.2s; opacity:.85; }
   #orb[data-state="listening"] { --tint:#ff5d73; }
   #orb[data-state="speaking"] { --tint:#ffc34d; }
   #orb[data-state="standby"] { --tint:#2a7da0; }
   #orb[data-state="standby"] img { opacity:.78; }
   @keyframes spin { to { transform:rotate(360deg); } }
-  #orbState { font-size:.68rem; letter-spacing:.35em; text-transform:uppercase; color:var(--accent); text-indent:.35em; }
-  #orbBtns { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
-  #speak, #convo, #wake { padding:4px 10px; font-size:.68rem; }
-  #convo[aria-pressed="true"] { color:#fff; background:rgba(255,93,115,.3); border-color:var(--danger); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity:.65; } }
+
+  /* conversation */
+  #log { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; min-height:140px; max-height:420px; padding-right:2px; }
+  .msg { max-width:90%; padding:7px 11px; border-radius:6px; white-space:pre-wrap; word-wrap:break-word; font-size:.9rem; }
+  .msg.user { align-self:flex-end; background:rgba(58,200,255,.18); border:1px solid var(--accent); }
+  .msg.assistant { align-self:flex-start; background:rgba(2,10,20,.85); border:1px solid var(--line); border-left:3px solid var(--accent-2); }
+
+  /* tasks / notes */
+  ul { list-style:none; margin:0 0 10px; padding:0; display:grid; gap:6px; }
+  li { display:flex; gap:8px; align-items:flex-start; }
+  li.done span { text-decoration:line-through; color:var(--dim); }
+  li small { color:var(--dim); display:block; } li small.over { color:var(--danger); }
+  li .x { margin-left:auto; background:none; border:0; color:var(--dim); padding:0 6px; }
+  li input[type=checkbox] { accent-color:var(--accent); width:auto; margin-top:4px; }
+  .scroll { overflow-y:auto; min-height:0; flex:1; max-height:260px; }
+  form.row2 { display:flex; gap:6px; }
+  form.row2 input[type=date] { width:auto; }
+
+  /* timeline */
+  .tl { display:grid; gap:8px; }
+  .tl .item { display:grid; grid-template-columns:62px 12px 1fr auto; gap:8px; align-items:center; font-size:.82rem; }
+  .tl .item .t { color:var(--dim); font-size:.7rem; text-align:right; }
+  .tl .item .n { width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent); }
+  .tl .item.over .n { background:var(--danger); box-shadow:0 0 8px var(--danger); }
+  .tl .item.soon .n { background:var(--accent-2); box-shadow:0 0 8px var(--accent-2); }
+  .tl .item em { font-style:normal; font-size:.68rem; color:var(--dim); white-space:nowrap; }
+  .tl .item.over em { color:var(--danger); }
+
+  /* quick commands */
+  .qc { display:grid; gap:8px; }
+  .qc button { display:flex; align-items:center; gap:10px; text-transform:none; letter-spacing:.04em; font-size:.88rem; text-align:left; background:rgba(2,10,20,.55); border-color:var(--line); }
+  .qc button:hover { border-color:var(--accent); }
+
+  /* rings */
+  #rings { display:flex; justify-content:space-around; align-items:center; flex:1; gap:8px; }
+  .ring { --p:0; --c:var(--accent); width:84px; height:84px; border-radius:50%; display:grid; place-items:center; position:relative;
+    background:conic-gradient(var(--c) calc(var(--p) * 1%), rgba(58,200,255,.12) 0); }
+  .ring::before { content:""; position:absolute; inset:9px; border-radius:50%; background:#07111e; }
+  .ring b { position:relative; font-size:1.25rem; }
+  .ring-l { text-align:center; font-size:.66rem; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin-top:6px; }
+
+  /* insights */
+  .stats { display:flex; justify-content:space-around; align-items:center; text-align:center; gap:8px; flex:1; }
+  .stats b { display:block; font-size:2rem; color:var(--accent); } .stats small { color:var(--dim); font-size:.65rem; letter-spacing:.1em; text-transform:uppercase; }
+
+  /* bottom bar */
+  #bottombar { display:flex; align-items:center; gap:12px; padding:10px 16px; border-top:1px solid var(--line); background:rgba(4,10,20,.85); backdrop-filter:blur(6px); position:sticky; bottom:0; }
+  .chip { display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); border-radius:6px; font-size:.68rem; white-space:nowrap; color:var(--dim); }
+  .chip b { display:block; color:var(--text); font-weight:600; font-size:.74rem; }
+  #chatForm { flex:1; display:flex; gap:8px; align-items:center; padding:6px 8px 6px 14px; border:1px solid var(--accent); border-radius:99px; box-shadow:var(--glow); background:rgba(2,10,20,.7); max-width:760px; margin:0 auto; }
+  #chatForm input { border:0; background:transparent; box-shadow:none; padding:6px 4px; }
+  #chatForm button { border-radius:99px; }
+  #mic.listening { background:var(--danger); border-color:var(--danger); color:#fff; animation:pulse 1.2s infinite; }
   #mic:disabled { opacity:.35; cursor:not-allowed; }
+  #chatErr { position:absolute; bottom:100%; left:0; right:0; text-align:center; padding:2px; }
+  #bottombar { position:sticky; }
+
+  /* views (sidebar navigation) */
+  body:not([data-view="home"]) #grid { grid-template-areas:none; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); grid-template-rows:none; }
+  body:not([data-view="home"]) .panel { grid-area:auto !important; }
+  body[data-view="tasks"] .panel:not([data-in~="tasks"]), body[data-view="memory"] .panel:not([data-in~="memory"]), body[data-view="chat"] .panel:not([data-in~="chat"]) { display:none; }
+  body[data-view="chat"] #log { max-height:60vh; }
+
   @media (prefers-reduced-motion: reduce) { #orb::before, #login img { animation:none; } #orb img { transform:none; } }
-  @media (max-width:800px) { #orb { width:min(70vw, 260px); height:min(70vw, 260px); } }
+  @media (max-width:1100px) {
+    #app { grid-template-columns:1fr; grid-template-rows:auto auto 1fr auto; }
+    #sidebar { grid-row:auto; position:static; height:auto; flex-direction:row; flex-wrap:wrap; align-items:center; border-right:0; border-bottom:1px solid var(--line); }
+    #brand { border:0; padding:0; } #nav { display:flex; flex-wrap:wrap; flex:1; } .nav { width:auto; } #voiceBox { display:none; }
+    #grid { grid-template-columns:1fr; grid-template-rows:none; grid-template-areas:"hero" "convo" "core" "tasks" "timeline" "quick" "rings" "insights" "memory"; }
+    #topbar { flex-wrap:wrap; } #search { max-width:none; flex:1; } .chip { display:none; }
+    #bottombar { padding:8px; }
+  }
+
+  /* ---------- refinements ---------- */
+  #taskForm { flex-wrap:wrap; }
+  #taskForm #taskText { flex:1 1 130px; min-width:0; }
+  #taskForm input[type=date] { flex:0 0 140px; }
+  #noteForm { grid-template-columns:1fr 1fr auto; }
+  #noteForm textarea { resize:none; height:38px; padding:8px 12px; }
+
+  /* desktop: the whole command center fits one screen, like a real cockpit */
+  @media (min-width:1101px) and (min-height:820px) {
+    html, body { height:100%; overflow:hidden; }
+    #app { height:100vh; }
+    #grid { height:100%; min-height:0; overflow:hidden; }
+    body[data-view="home"] #grid { grid-template-rows:minmax(0,1.25fr) minmax(0,1fr) minmax(0,.9fr); gap:10px; padding:10px 14px; }
+    .panel { padding:10px 12px; } .panel h2 { margin-bottom:7px; }
+    .row { padding:4px 8px; gap:8px; } .row .ic { width:24px; height:24px; font-size:.85rem; } .row b { font-size:.8rem; } .row small { font-size:.66rem; }
+    .rows { gap:4px; }
+    .qc { gap:6px; } .qc button { padding:6px 10px; font-size:.82rem; }
+    #taskForm { flex-wrap:nowrap; } #taskForm input[type=date] { flex:0 0 112px; padding:6px 6px; font-size:.78rem; } #taskForm #taskText { padding:7px 8px; }
+    #p-hero { padding-top:14px; }
+    body:not([data-view="home"]) #grid { overflow-y:auto; align-content:start; }
+    .panel { overflow:hidden; }
+    .scroll { max-height:none; }
+    body[data-view="home"] #log { max-height:none; min-height:0; }
+    body[data-view="home"] #orb { width:clamp(120px, 21vh, 250px); height:clamp(120px, 21vh, 250px); margin-top:6px; }
+    body[data-view="home"] #p-hero h1 { font-size:clamp(1.3rem,2.4vw,2rem); margin-top:2px; }
+  }
+  body[data-view="chat"] #log { max-height:55vh; }
+
+  /* phone / narrow */
+  @media (max-width:1100px) {
+    #sidebar { flex-wrap:wrap; gap:8px; padding:8px 10px; }
+    #brand img { width:34px; height:34px; } #brand small { display:none; }
+    #nav { flex:1 1 100%; flex-wrap:nowrap; overflow-x:auto; order:3; } .nav { white-space:nowrap; padding:7px 10px; font-size:.8rem; }
+    #voiceBox { display:flex; flex:1 1 100%; order:4; flex-wrap:wrap; justify-content:center; align-items:center; gap:10px; padding:8px; }
+    #voiceBox h3, #wave { display:none; }
+    #convo { width:48px; height:48px; font-size:1.2rem; }
+    #topbar { display:grid; grid-template-columns:1fr auto; gap:8px; padding:8px 12px; }
+    #clockBox { grid-column:1 / -1; grid-row:2; } #clock { font-size:1.2rem; letter-spacing:.08em; }
+    #search { grid-column:1 / -1; grid-row:3; max-width:none; }
+    #operator { padding-left:10px; }
+    #orb { width:min(62vw, 240px); height:min(62vw, 240px); }
+    #bottombar [data-cmd] { display:none; }
+  }
 </style>
 </head>
 <body>
@@ -102,49 +243,116 @@
 </div>
 
 <div id="app" hidden>
-  <header><div><h1 style="display:inline">J.A.R.V.I.S.</h1><small>Just A Rather Very Intelligent System</small></div><button class="ghost" id="logout">Lock</button></header>
-  <main>
-    <section id="chatbox">
-      <div id="orbWrap">
-        <div id="orb" data-state="idle" role="img" aria-label="Jarvis status: idle">
-          <img src="/jarvis-orb.png" alt="" width="180" height="180" draggable="false">
-        </div>
-        <div id="orbState">idle</div>
-        <div id="orbBtns">
-          <button type="button" id="convo" class="ghost" aria-pressed="false" title="Keep the microphone on and talk freely" hidden>🎙 Conversation: off</button>
-          <button type="button" id="wake" class="ghost" aria-pressed="true" title="In conversation mode, only respond to sentences that contain “Jarvis”" hidden>🗣 Wake word: on</button>
-          <button type="button" id="speak" class="ghost" aria-pressed="false" title="Read replies aloud">🔇 Voice: off</button>
-        </div>
+  <aside id="sidebar">
+    <div id="brand"><img src="/jarvis-orb.png" alt=""><div><b>JARVIS</b><small>Command Center</small></div></div>
+    <nav id="nav">
+      <button class="nav active" data-view="home">🧭 Command Center</button>
+      <button class="nav" data-view="tasks">✅ Tasks <span class="badge" id="bTasks">0</span></button>
+      <button class="nav" data-view="memory">🧠 Memory <span class="badge" id="bMem">0</span></button>
+      <button class="nav" data-view="chat">💬 Conversations <span class="badge" id="bTurns">0</span></button>
+    </nav>
+    <div id="voiceBox">
+      <h3>VOICE STATUS</h3>
+      <div id="wave"><i style="--k:0.3"></i><i style="--k:0.5"></i><i style="--k:0.8"></i><i style="--k:0.4"></i><i style="--k:1"></i><i style="--k:0.6"></i><i style="--k:0.9"></i><i style="--k:0.35"></i><i style="--k:0.7"></i><i style="--k:1.1"></i><i style="--k:0.45"></i><i style="--k:0.85"></i><i style="--k:0.55"></i><i style="--k:1"></i><i style="--k:0.4"></i><i style="--k:0.75"></i><i style="--k:0.5"></i><i style="--k:0.9"></i><i style="--k:0.3"></i><i style="--k:0.6"></i></div>
+      <div id="voiceText">Tap to start talking</div>
+      <button type="button" id="convo" aria-pressed="false" title="Keep the microphone on and talk freely" hidden>🎙</button>
+      <div id="convoLabel">Conversation: off</div>
+      <div id="voiceOpts">
+        <button type="button" id="wake" class="ghost" aria-pressed="true" title="In conversation mode, only respond to sentences that contain “Jarvis”" hidden>🗣 Wake word: on</button>
+        <button type="button" id="speak" class="ghost" aria-pressed="false" title="Read replies aloud">🔇 Voice: off</button>
       </div>
+    </div>
+  </aside>
+
+  <header id="topbar">
+    <div id="status"><span>System status</span><span class="dot" id="sysDot"></span><b id="sysText">Online</b></div>
+    <div id="clockBox"><div id="date"></div><div id="clock"></div></div>
+    <input id="search" type="search" placeholder="Search tasks &amp; memory…" autocomplete="off">
+    <div id="operator"><div>Howard<small>Operator</small></div><button class="ghost" id="logout" title="Lock">🔒</button></div>
+  </header>
+
+  <main id="grid">
+    <section class="panel" id="p-core" data-in="home"><h2>AI Core Overview</h2>
+      <ul class="rows">
+        <li class="row"><span class="ic">🧠</span><div><b>AI Core</b><small id="cs-ai">Ready</small></div></li>
+        <li class="row"><span class="ic">🗂</span><div><b>Memory</b><small id="cs-mem">0 stored</small></div></li>
+        <li class="row"><span class="ic">🎙</span><div><b>Voice</b><small id="cs-voice">Idle</small></div></li>
+        <li class="row"><span class="ic">✅</span><div><b>Tasks</b><small id="cs-tasks">0 open</small></div></li>
+        <li class="row"><span class="ic">🛡</span><div><b>Connection</b><small id="cs-sys">Online</small></div></li>
+      </ul>
+    </section>
+
+    <section class="panel" id="p-hero" data-in="home chat">
+      <div id="orb" data-state="idle" role="img" aria-label="Jarvis status: idle"><img src="/jarvis-orb.png" alt="" draggable="false"></div>
+      <h1>JARVIS</h1><div class="sub">AI CORE</div>
+      <div id="orbState">idle</div>
+    </section>
+
+    <section class="panel" id="p-convo" data-in="home chat"><h2>Live Conversation <span id="turnsLabel"></span></h2>
       <div id="log"></div>
-      <div class="err" id="chatErr"></div>
-      <form class="row" id="chatForm">
-        <input id="msg" placeholder="Your instructions, Sir… e.g. “remind me to call Mom Friday”" autocomplete="off" required>
-        <button type="button" id="mic" class="ghost" title="Speak to JARVIS" aria-label="Speak" aria-pressed="false" hidden>🎤</button>
-        <button id="send">Send</button>
+    </section>
+
+    <section class="panel" id="p-tasks" data-in="home tasks"><h2>Task Queue <span id="taskCount"></span></h2>
+      <div class="scroll"><ul id="tasks"></ul></div>
+      <form class="row2" id="taskForm">
+        <input id="taskText" placeholder="Add a task" required>
+        <input id="taskDue" type="date">
+        <button>+</button>
       </form>
     </section>
-    <div id="side">
-      <section>
-        <h2>Task Queue</h2>
-        <ul id="tasks"></ul>
-        <form class="row" id="taskForm">
-          <input id="taskText" placeholder="New directive" required>
-          <input id="taskDue" type="date" style="width:auto">
-          <button>+</button>
-        </form>
-      </section>
-      <section>
-        <h2>Memory Bank</h2>
-        <ul id="notes"></ul>
-        <form id="noteForm" style="display:grid;gap:6px">
-          <input id="noteTitle" placeholder="Title" required>
-          <textarea id="noteBody" rows="2" placeholder="Body (optional)"></textarea>
-          <button>Store</button>
-        </form>
-      </section>
-    </div>
+
+    <section class="panel" id="p-timeline" data-in="home tasks"><h2>Mission Timeline <span>by due date</span></h2>
+      <div class="tl" id="timeline"></div>
+    </section>
+
+    <section class="panel" id="p-quick" data-in="home"><h2>Quick Commands</h2>
+      <div class="qc">
+        <button type="button" data-cmd="task">➕ Start New Task</button>
+        <button type="button" data-cmd="voice">🎙 Start Voice Chat</button>
+        <button type="button" data-cmd="note">📝 New Note</button>
+        <button type="button" data-cmd="memory">🧠 Open Memory</button>
+      </div>
+    </section>
+
+    <section class="panel" id="p-rings" data-in="home tasks"><h2>Task Status</h2>
+      <div id="rings">
+        <div><div class="ring" id="r-open"><b>0</b></div><div class="ring-l">Open</div></div>
+        <div><div class="ring" id="r-done" style="--c:var(--good)"><b>0</b></div><div class="ring-l">Done</div></div>
+        <div><div class="ring" id="r-over" style="--c:var(--danger)"><b>0</b></div><div class="ring-l">Overdue</div></div>
+      </div>
+    </section>
+
+    <section class="panel" id="p-insights" data-in="home memory"><h2>Activity</h2>
+      <div class="stats">
+        <div><b id="st-mem">0</b><small>Memories</small></div>
+        <div><b id="st-turns">0</b><small>Exchanges</small></div>
+        <div><b id="st-open">0</b><small>Open tasks</small></div>
+      </div>
+    </section>
+
+    <section class="panel" id="p-memory" data-in="home memory"><h2>Memory Bank <span id="memCount"></span></h2>
+      <div class="scroll"><ul id="notes"></ul></div>
+      <form id="noteForm" style="display:grid;gap:6px">
+        <input id="noteTitle" placeholder="Title" required>
+        <textarea id="noteBody" rows="1" placeholder="Details"></textarea>
+        <button>Store</button>
+      </form>
+    </section>
   </main>
+
+  <footer id="bottombar">
+    <div class="chip">🕒<div>Time zone<b id="tz"></b></div></div>
+    <div class="chip">📶<div>Network<b id="net">Online</b></div></div>
+    <div style="position:relative;flex:1;display:flex">
+      <div class="err" id="chatErr"></div>
+      <form id="chatForm">
+        <input id="msg" placeholder="Talk to JARVIS — or type here, Sir  ( / to focus )" autocomplete="off" required>
+        <button type="button" id="mic" class="ghost" title="Dictate" aria-label="Dictate" aria-pressed="false" hidden>🎤</button>
+        <button id="send">Send</button>
+      </form>
+    </div>
+    <button type="button" class="ghost" data-cmd="brief">📋 Executive Briefing</button>
+  </footer>
 </div>
 
 <script>
@@ -177,26 +385,45 @@ function addMsg(role, text) {
   $("log").scrollTop = $("log").scrollHeight;
 }
 
-async function loadTasks() {
-  const { tasks } = await api("/tasks");
+const state = { tasks: [], notes: [], turns: 0, chatOk: null, filter: "", orb: "idle" };
+const todayStr = () => new Date().toLocaleDateString("en-CA");               // local YYYY-MM-DD
+const dayDiff = (due) => Math.round((Date.parse(due + "T00:00:00") - Date.parse(todayStr() + "T00:00:00")) / 86400000);
+const relDue = (due) => { const d = dayDiff(due); return d < 0 ? `Overdue ${-d}d` : d === 0 ? "Today" : d === 1 ? "Tomorrow" : `In ${d}d`; };
+const matches = (...parts) => !state.filter || parts.join(" ").toLowerCase().includes(state.filter);
+
+async function loadTasks() { state.tasks = (await api("/tasks")).tasks; renderDash(); }
+async function loadNotes() { state.notes = (await api("/notes")).notes; renderDash(); }
+
+async function loadAll() {
+  const { messages } = await api("/messages");
+  $("log").replaceChildren();
+  if (!messages.length) addMsg("assistant", "Good day, Sir. How may I be of service?");
+  messages.forEach((m) => addMsg(m.role, m.content));
+  state.turns = Math.floor(messages.length / 2);
+  loadTasks(); loadNotes();
+}
+
+// ---- Dashboard panels: everything below is drawn from real tasks, notes and conversation. ----
+function renderTasks() {
   const ul = $("tasks"); ul.replaceChildren();
-  if (!tasks.length) ul.append(el("li", { textContent: "Nothing outstanding, Sir." }));
-  for (const t of tasks) {
-    const cb = el("input", { type: "checkbox", checked: !!t.done_at, style: "width:auto;margin-top:4px" });
+  const list = state.tasks.filter((t) => matches(t.text));
+  if (!list.length) ul.append(el("li", { textContent: state.tasks.length ? "No match." : "Nothing outstanding, Sir." }));
+  for (const t of list) {
+    const cb = el("input", { type: "checkbox", checked: !!t.done_at });
     cb.onchange = async () => { await api("/tasks/" + t.id, { method: "PATCH", body: { done: cb.checked } }); loadTasks(); };
     const label = el("span", { textContent: t.text });
-    if (t.due_date) label.append(el("small", { textContent: "due " + t.due_date }));
+    if (t.due_date) label.append(el("small", { className: !t.done_at && dayDiff(t.due_date) < 0 ? "over" : "", textContent: "due " + t.due_date + (t.done_at ? "" : " · " + relDue(t.due_date)) }));
     const x = el("button", { className: "x", textContent: "×", title: "Delete" });
     x.onclick = async () => { await api("/tasks/" + t.id, { method: "DELETE" }); loadTasks(); };
     ul.append(el("li", { className: t.done_at ? "done" : "" }, cb, label, x));
   }
 }
 
-async function loadNotes() {
-  const { notes } = await api("/notes");
+function renderNotes() {
   const ul = $("notes"); ul.replaceChildren();
-  if (!notes.length) ul.append(el("li", { textContent: "Nothing stored." }));
-  for (const n of notes) {
+  const list = state.notes.filter((n) => matches(n.title, n.body));
+  if (!list.length) ul.append(el("li", { textContent: state.notes.length ? "No match." : "Nothing stored." }));
+  for (const n of list) {
     const label = el("span", { textContent: n.title });
     if (n.body) label.append(el("small", { textContent: n.body }));
     const x = el("button", { className: "x", textContent: "×", title: "Delete" });
@@ -205,13 +432,92 @@ async function loadNotes() {
   }
 }
 
-async function loadAll() {
-  const { messages } = await api("/messages");
-  $("log").replaceChildren();
-  if (!messages.length) addMsg("assistant", "Good day, Sir. How may I be of service?");
-  messages.forEach((m) => addMsg(m.role, m.content));
-  loadTasks(); loadNotes();
+function renderTimeline() {
+  const box = $("timeline"); box.replaceChildren();
+  const dated = state.tasks.filter((t) => !t.done_at && t.due_date).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 6);
+  if (!dated.length) { box.append(el("div", { textContent: "No dated tasks. Try “remind me to call Mom on Friday”.", style: "color:var(--dim);font-size:.85rem" })); return; }
+  for (const t of dated) {
+    const d = dayDiff(t.due_date);
+    const when = new Date(t.due_date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" });
+    box.append(el("div", { className: "item" + (d < 0 ? " over" : d <= 1 ? " soon" : "") },
+      el("span", { className: "t", textContent: when }), el("span", { className: "n" }),
+      el("span", { textContent: t.text }), el("em", { textContent: relDue(t.due_date) })));
+  }
 }
+
+function renderRings() {
+  const open = state.tasks.filter((t) => !t.done_at), done = state.tasks.filter((t) => t.done_at);
+  const over = open.filter((t) => t.due_date && dayDiff(t.due_date) < 0);
+  const set = (id, n, total) => { const r = $(id); r.style.setProperty("--p", total ? (n / total) * 100 : 0); r.firstChild.textContent = n; };
+  set("r-open", open.length, open.length + done.length);
+  set("r-done", done.length, open.length + done.length);
+  set("r-over", over.length, open.length);
+  return { open, over };
+}
+
+const VOICE_TEXT = { idle: "Tap to start talking", listening: "Listening…", standby: "Say “Jarvis”…", thinking: "Thinking…", speaking: "Speaking…" };
+function renderCore(openCount = 0) {
+  const set = (id, text, cls = "") => { const e = $(id); e.textContent = text; e.className = cls; };
+  set("cs-ai", state.chatOk === false ? "Error — check API key" : state.chatOk ? "Online" : "Ready", state.chatOk === false ? "bad" : "");
+  set("cs-mem", state.notes.length + " stored");
+  set("cs-voice", ({ idle: "Idle", listening: "Listening", standby: "Standing by", thinking: "Thinking", speaking: "Speaking" })[state.orb] || state.orb, state.orb === "idle" ? "mute" : "");
+  set("cs-tasks", openCount + " open", openCount ? "warn" : "");
+  set("cs-sys", navigator.onLine ? "Online" : "Offline", navigator.onLine ? "" : "bad");
+  $("voiceText").textContent = VOICE_TEXT[state.orb] || "";
+}
+
+function renderDash() {
+  renderTasks(); renderNotes(); renderTimeline();
+  const { open, over } = renderRings();
+  renderCore(open.length);
+  $("bTasks").textContent = open.length; $("bMem").textContent = state.notes.length; $("bTurns").textContent = state.turns;
+  $("st-mem").textContent = state.notes.length; $("st-turns").textContent = state.turns; $("st-open").textContent = open.length;
+  $("taskCount").textContent = open.length ? open.length + " open" + (over.length ? " · " + over.length + " overdue" : "") : "";
+  $("memCount").textContent = state.notes.length ? String(state.notes.length) : "";
+  $("turnsLabel").textContent = state.turns ? state.turns + " exchanges" : "";
+}
+
+// clock, network, time zone
+function tickClock() {
+  const now = new Date();
+  $("date").textContent = now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  $("clock").textContent = now.toLocaleTimeString();
+}
+function paintNet() {
+  const on = navigator.onLine;
+  $("net").textContent = on ? "Online" : "Offline"; $("sysText").textContent = on ? "Online" : "Offline";
+  $("sysDot").classList.toggle("bad", !on); renderCore(state.tasks.filter((t) => !t.done_at).length);
+}
+tickClock(); setInterval(tickClock, 1000);
+$("tz").textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
+addEventListener("online", paintNet); addEventListener("offline", paintNet);
+
+document.addEventListener("orbstate", (e) => { state.orb = e.detail; renderCore(state.tasks.filter((t) => !t.done_at).length); });
+$("search").oninput = (e) => { state.filter = e.target.value.trim().toLowerCase(); renderTasks(); renderNotes(); };
+
+// sidebar views
+function setView(v) {
+  document.body.dataset.view = v;
+  document.querySelectorAll(".nav").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
+}
+setView("home");
+document.querySelectorAll(".nav").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
+
+// press "/" anywhere to talk to Jarvis
+addEventListener("keydown", (e) => {
+  if (e.key === "/" && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName) && !$("app").hidden) { e.preventDefault(); $("msg").focus(); }
+});
+
+// quick commands
+function ask(text) { $("msg").value = text; voice.dictated = false; $("chatForm").requestSubmit(); }
+document.querySelectorAll("[data-cmd]").forEach((b) => (b.onclick = () => {
+  const c = b.dataset.cmd;
+  if (c === "task") { setView("home"); $("taskText").focus(); }
+  else if (c === "voice") { const cv = $("convo"); if (!cv.hidden) cv.click(); else $("chatErr").textContent = "Voice input isn't supported in this browser — try Chrome or Edge."; }
+  else if (c === "brief") ask("Executive briefing, please: summarise my open tasks (overdue first) and anything in my notes worth acting on. Keep it brief.");
+  else if (c === "note") { setView("home"); $("noteTitle").focus(); }
+  else if (c === "memory") setView("memory");
+}));
 
 $("loginForm").onsubmit = async (e) => {
   e.preventDefault(); $("loginErr").textContent = "";
@@ -231,10 +537,11 @@ $("chatForm").onsubmit = async (e) => {
   try {
     const r = await api("/chat", { method: "POST", body: { message: text } });
     addMsg("assistant", r.answer);
+    state.chatOk = true; state.turns += 1; renderDash();
     if (r.refresh) { loadTasks(); loadNotes(); }
     if (voice.speakAlways || viaVoice) { speaking = true; voice.say(r.answer, () => voice.resume()); }
     else orb.set("idle");
-  } catch (err) { $("chatErr").textContent = err.message; orb.set("idle"); }
+  } catch (err) { $("chatErr").textContent = err.message; state.chatOk = false; renderDash(); orb.set("idle"); }
   if (!speaking) voice.resume();
   $("send").disabled = false; $("msg").focus();
 };
@@ -261,6 +568,7 @@ const orb = (() => {
   let state = "idle", level = 0, kick = 0, micLevel = 0;
   function set(s) {
     state = s; el.dataset.state = s; label.textContent = s;
+    document.dispatchEvent(new CustomEvent("orbstate", { detail: s }));
     el.setAttribute("aria-label", "Jarvis status: " + s);
   }
   function frame(t) {
@@ -272,6 +580,7 @@ const orb = (() => {
     kick *= 0.9;
     level += (Math.min(target, 1) - level) * 0.25;
     el.style.setProperty("--level", (calm ? level * 0.3 : level).toFixed(3));
+    document.documentElement.style.setProperty("--lv", level.toFixed(3));
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -385,7 +694,7 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
 
   function startConvo() {
     convo = true; paused = false; lastHeard = Date.now(); engagedUntil = 0;
-    convoBtn.textContent = "🎙 Conversation: on"; convoBtn.setAttribute("aria-pressed", "true");
+    $("convoLabel").textContent = "Conversation: on"; convoBtn.setAttribute("aria-pressed", "true");
     mic.disabled = true; $("chatErr").textContent = "";
     idleTimer = setInterval(() => { if (Date.now() - lastHeard > IDLE_LIMIT_MS) stopConvo("Conversation mode ended after 10 quiet minutes."); }, 30000);
     startListening();
@@ -397,7 +706,7 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
     window.speechSynthesis?.cancel();
     if (orb.state !== "thinking") orb.set("idle");
     stopMeter();
-    convoBtn.textContent = "🎙 Conversation: off"; convoBtn.setAttribute("aria-pressed", "false");
+    $("convoLabel").textContent = "Conversation: off"; convoBtn.setAttribute("aria-pressed", "false");
     mic.disabled = false;
     if (note) $("chatErr").textContent = note;
   }
