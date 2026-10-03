@@ -200,3 +200,37 @@ describe("library text handling", () => {
     expect(ftsQuery("café naïve")).toBe('"café" OR "naïve"');
   });
 });
+
+import { audioExtension, cleanSpeechText, spend, TTS_VOICES, DEFAULT_VOICE, BUTLER } from "../src/voice.js";
+
+describe("OpenAI voice helpers", () => {
+  it("maps recorder mime types to extensions OpenAI accepts", () => {
+    expect(audioExtension("audio/webm;codecs=opus")).toBe("webm");
+    expect(audioExtension("audio/mp4")).toBe("mp4");
+    expect(audioExtension("audio/x-m4a")).toBe("mp4");
+    expect(audioExtension("audio/mpeg")).toBe("mp3");
+    expect(audioExtension("audio/wav")).toBe("wav");
+    expect(audioExtension("text/html")).toBeNull();
+    expect(audioExtension("")).toBeNull();
+  });
+  it("cleans and caps the text to speak", () => {
+    expect(cleanSpeechText("  hello \n\n  world  ")).toBe("hello world");
+    expect(cleanSpeechText("a".repeat(5000))).toHaveLength(1500);
+    expect(cleanSpeechText(null)).toBe("");
+  });
+  it("enforces a per-day allowance and resets on a new day", () => {
+    const day = "2026-10-03";
+    let u = spend(null, day, "tts_chars", 40, 100);
+    expect(u).toEqual({ day, tts_chars: 40, stt_calls: 0 });
+    u = spend(u, day, "tts_chars", 60, 100);
+    expect(u.tts_chars).toBe(100);
+    expect(spend(u, day, "tts_chars", 1, 100)).toBeNull();                       // over the ceiling
+    expect(spend(u, day, "stt_calls", 1, 5).stt_calls).toBe(1);                    // separate counter
+    expect(spend(u, "2026-10-04", "tts_chars", 10, 100)).toEqual({ day: "2026-10-04", tts_chars: 10, stt_calls: 0 });
+  });
+  it("offers a sane voice list and a fixed butler persona", () => {
+    expect(TTS_VOICES).toContain(DEFAULT_VOICE);
+    expect(new Set(TTS_VOICES).size).toBe(TTS_VOICES.length);
+    expect(BUTLER).toMatch(/British butler/);
+  });
+});

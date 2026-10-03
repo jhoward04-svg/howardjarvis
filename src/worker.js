@@ -9,6 +9,7 @@ import { parseImage, buildUserContent, buildSystemPrompt, runChat, PHOTO_PROMPT,
 import { addDocument, listDocuments, deleteDocument, libraryCount } from "./library.js";
 import { getSettings } from "./notify.js";
 import { getCalendar } from "./calendar.js";
+import { speak, transcribe, TTS_VOICES } from "./voice.js";
 
 export { parseImage, buildUserContent, buildSystemPrompt };
 
@@ -241,6 +242,11 @@ async function handleApi(request, env, url) {
   }
   const docMatch = pathname.match(/^\/api\/library\/([\w-]+)$/);
   if (docMatch && method === "DELETE") return json(await deleteDocument(env, docMatch[1]));
+
+  // OpenAI voice (key stays on the server)
+  if (pathname === "/api/voice/speak" && method === "POST") return speak(env, request);
+  if (pathname === "/api/voice/transcribe" && method === "POST") return transcribe(env, request);
+  if (pathname === "/api/voice/config" && method === "GET") return json({ ready: !!env.OPENAI_API_KEY, voices: TTS_VOICES });
 
   // calendar check (Settings → "Test")
   if (pathname === "/api/calendar/test" && method === "GET") {

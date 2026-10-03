@@ -82,3 +82,18 @@ that first interaction unlocks the voice.
 
 Migration `0003_intelligence.sql` (memories, documents, `doc_fts`) must be applied before deploying.
 `ANTHROPIC_BASE_URL` (optional) points the Worker at another API host — used by the local end-to-end tests.
+
+## OpenAI voice
+
+Natural spoken replies and listening that works where the browser has no speech recognition (the installed iPhone app).
+Needs one secret: `OPENAI_API_KEY` (Worker → Settings → Variables and Secrets). Without it everything falls back to device voices.
+
+- `src/voice.js` proxies `POST /api/voice/speak` (text → MP3, `gpt-4o-mini-tts`, fixed British-butler instructions, voice chosen from a
+  whitelist) and `POST /api/voice/transcribe` (clip → text, `gpt-transcribe`, retried with `gpt-4o-mini-transcribe` if refused).
+  The key never reaches the browser. Daily ceilings: `VOICE_DAILY_CHARS` (default 60 000) and `VOICE_DAILY_STT` (default 500).
+  Optional overrides: `OPENAI_TTS_MODEL`, `OPENAI_STT_MODEL`, `OPENAI_BASE_URL` (tests).
+- Browser: `CloudRec` records with `MediaRecorder`, detects the end of speech, uploads, and presents the same interface as
+  `SpeechRecognition`, so conversation mode and the wake word work unchanged. The microphone is released before anything speaks.
+- Playback uses one persistent `<audio>` element, unlocked by a silent clip on the first tap (iOS rule). Any failure falls back to
+  the device voice. Settings → Voice picks the engines and the OpenAI voice. The UI states that the voice is AI-generated.
+- With OpenAI listening, every clip of detected speech is sent to OpenAI — including while waiting for the wake word.
