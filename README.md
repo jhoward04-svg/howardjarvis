@@ -35,3 +35,10 @@ The 📷 button opens the phone camera (🖼 picks from the gallery; on desktop 
 picker; you can also paste an image into the message box). The browser shrinks the photo to
 1568 px / JPEG before upload; the Worker re-validates it and sends it to Claude for that one
 turn. Photos are **not** stored — the history keeps only a "📷 [photo]" text marker.
+
+## Install on a phone (PWA)
+
+`manifest.webmanifest` + `sw.js` + icons make the site installable. Android/Chrome: Install
+button in the top bar (or menu ⋮ → Install app). iPhone/Safari: Share → Add to Home Screen.
+The service worker caches only the app shell; `/api/*` is never cached, and the page itself is
+network-first so deploys show up immediately.

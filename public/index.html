@@ -2,7 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04070d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="JARVIS">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="robots" content="noindex">
 <title>J.A.R.V.I.S.</title>
 <style>
@@ -189,6 +197,15 @@
     #bottombar { padding:8px; }
   }
 
+  /* ---------- installed-app polish ---------- */
+  #bottombar { padding-bottom:calc(10px + env(safe-area-inset-bottom)); padding-left:calc(16px + env(safe-area-inset-left)); padding-right:calc(16px + env(safe-area-inset-right)); }
+  #topbar { padding-top:calc(10px + env(safe-area-inset-top)); }
+  #sidebar { padding-top:calc(14px + env(safe-area-inset-top)); }
+  #installBtn { padding:6px 10px; font-size:.65rem; }
+  #toast { position:fixed; left:50%; bottom:calc(84px + env(safe-area-inset-bottom)); transform:translateX(-50%); max-width:min(92vw,420px);
+    background:rgba(4,12,24,.96); border:1px solid var(--accent); box-shadow:var(--glow); border-radius:8px; padding:10px 14px; font-size:.85rem; z-index:50; text-align:center; }
+  @media (display-mode: standalone) { #installBtn { display:none !important; } }
+
   /* ---------- refinements ---------- */
   #taskForm { flex-wrap:wrap; }
   #taskForm #taskText { flex:1 1 130px; min-width:0; }
@@ -272,6 +289,7 @@
     <div id="status"><span>System status</span><span class="dot" id="sysDot"></span><b id="sysText">Online</b></div>
     <div id="clockBox"><div id="date"></div><div id="clock"></div></div>
     <input id="search" type="search" placeholder="Search tasks &amp; memory…" autocomplete="off">
+    <button type="button" id="installBtn" class="ghost" hidden>📲 Install app</button>
     <div id="operator"><div>Howard<small>Operator</small></div><button class="ghost" id="logout" title="Lock">🔒</button></div>
   </header>
 
@@ -344,6 +362,7 @@
     </section>
   </main>
 
+  <div id="toast" hidden></div>
   <footer id="bottombar">
     <div class="chip">🕒<div>Time zone<b id="tz"></b></div></div>
     <div class="chip">📶<div>Network<b id="net">Online</b></div></div>
@@ -809,7 +828,27 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
   convoBtn.onclick = () => (convo ? stopConvo() : startConvo());
 })();
 
-api("/me").then(showApp).catch(() => {});
+api("/me").then(showApp).catch((e) => {
+  if (e.message === "locked") return;                       // 401: login screen already shown
+  showLogin(); $("loginErr").textContent = "Can't reach JARVIS — check your connection.";
+});
+
+// ---- Installable app: service worker + install button (Android prompt / iOS instructions) ----
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+(function setupInstall() {
+  const btn = $("installBtn"), toast = $("toast");
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if (standalone) return;
+  const say = (t) => { toast.textContent = t; toast.hidden = false; clearTimeout(say.t); say.t = setTimeout(() => (toast.hidden = true), 9000); };
+  let deferred = null;
+  addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; btn.hidden = false; });
+  addEventListener("appinstalled", () => { btn.hidden = true; deferred = null; say("Installed, Sir. Look for the JARVIS icon on your home screen."); });
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent)) btn.hidden = false;       // iOS never fires the prompt event
+  btn.onclick = async () => {
+    if (deferred) { deferred.prompt(); await deferred.userChoice.catch(() => {}); deferred = null; btn.hidden = true; }
+    else say("On iPhone: tap the Share button, then “Add to Home Screen”. On Android: browser menu ⋮ → “Install app”.");
+  };
+})();
 </script>
 </body>
 </html>
