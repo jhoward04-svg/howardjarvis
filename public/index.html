@@ -1173,7 +1173,7 @@ class CloudRec {
     return URL.createObjectURL(new Blob([b], { type: "audio/wav" })); })();
   function unlockAudio() { try { audio.src = silent; const p = audio.play(); p && p.catch(() => {}); } catch {} }
   const cloudOn = () => voice.cfg.ready && getPref("hj_tts", "openai") === "openai";
-  voice.oaVoice = () => getPref("hj_oa_voice", "cedar");
+  voice.oaVoice = () => getPref("hj_oa_voice", "onyx");
   voice.stopSpeaking = () => { try { synth && synth.cancel(); } catch {} try { audio.pause(); } catch {} };
   const cloudSay = (text, done, report = () => {}) => {
     unlockAudio();                                      // we're usually inside a tap here: keep the element unlocked

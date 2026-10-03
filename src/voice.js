@@ -5,7 +5,7 @@
 //   POST /api/voice/transcribe  raw audio body   -> {text}
 
 export const TTS_VOICES = ["marin", "cedar", "fable", "onyx", "ash", "ballad", "echo", "sage", "verse", "alloy", "coral", "nova", "shimmer"];
-export const DEFAULT_VOICE = "cedar";
+export const DEFAULT_VOICE = "onyx";
 
 // Fixed server-side: the browser can pick a voice from the list, never the instructions.
 export const BUTLER =
