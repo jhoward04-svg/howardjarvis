@@ -26,7 +26,7 @@
     {
       "binding": "DB",
       "database_name": "howardjarvis",
-      "database_id": "REPLACE_WITH_D1_ID",
+      "database_id": "5260c160-e9e4-46c5-a453-ccddda03147a",
       "migrations_dir": "migrations"
     }
   ]
