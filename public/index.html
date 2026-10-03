@@ -798,7 +798,7 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
-const APP_VERSION = "2026-10-03.11";
+const APP_VERSION = "2026-10-03.14";
 $("appVersion").textContent = "App version " + APP_VERSION;
 
 // One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
@@ -812,7 +812,7 @@ $("voiceCheck").onclick = async () => {
   add("version " + APP_VERSION + " · " + (standalone ? "installed app" : "browser tab") + " · " + (/iphone|ipad|ipod/i.test(ua) ? "iOS" : /android/i.test(ua) ? "Android" : "desktop"));
   add("OpenAI voice configured on server: " + (voice.cfg.ready ? "yes" : "NO"));
   add("speaking with: " + (voice.cfg.ready && getPref("hj_tts", "openai") === "openai" ? "OpenAI “" + voice.oaVoice() + "”" : "device voice") + " · listening with: " + (voice.listenEngine || "none"));
-  add("browser speech recognition: " + ((window.SpeechRecognition || window.webkitSpeechRecognition) ? "present" : "absent") + " · MediaRecorder: " + (typeof MediaRecorder !== "undefined" ? "present (" + (["audio/webm;codecs=opus", "audio/mp4"].filter((t) => MediaRecorder.isTypeSupported(t)).join(", ") || "no common type") + ")" : "absent"));
+  add("browser speech recognition: " + ((window.SpeechRecognition || window.webkitSpeechRecognition) ? "present" : "absent") + " · raw audio capture: " + ((window.AudioContext || window.webkitAudioContext) && typeof (window.AudioContext || window.webkitAudioContext).prototype.createScriptProcessor === "function" ? "present" : "absent"));
   add("audio session API: " + (navigator.audioSession ? "present (" + navigator.audioSession.type + ")" : "absent"));
   if (!voice.cfg.ready) { add("→ add OPENAI_API_KEY to the Worker, then reopen the app."); return; }
   add("testing OpenAI speech…");
@@ -1088,111 +1088,142 @@ const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 // so the conversation-mode code doesn't care which engine is underneath. This is what makes listening work
 // in the installed iPhone app, where the built-in speech recognition doesn't exist.
 class CloudRec {
+  // Listens through OpenAI. It reads the raw microphone samples itself (no MediaRecorder): the same samples drive the
+  // "has the person stopped talking?" detection and become the clip that is sent (16 kHz mono WAV). One path means there is
+  // no way for the meter to hear something the recorder missed — the bug that made later turns "listen" to silence on iPhone.
   constructor(onLevel) { this.onLevel = onLevel; this.continuous = false; this.interimResults = false; this.lang = ""; this.onresult = this.onend = this.onerror = null; this.state = "idle"; this.shared = null; }
 
-  // Phones only open the microphone from a tap, never later on their own. So conversation mode opens it ONCE, from a
-  // tap, and keeps it for the whole conversation (muted whenever Jarvis is thinking or speaking). Call from a tap.
-  async prime() {
-    if (this.alive()) return true;
-    this.release();
+  async _openGraph() {
+    try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
+    const t0 = Date.now();
+    // Start the audio engine at the instant of the tap (phones only allow that inside the gesture), THEN wait for the microphone.
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC(); try { ctx.resume(); } catch {}
+    let stream;
     try {
-      try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
-      const t0 = Date.now();
-      const stream = await Promise.race([
+      stream = await Promise.race([
         navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }),
         new Promise((_, no) => setTimeout(() => no(new Error("timed out waiting for the microphone")), 8000)),
       ]);
-      const AC = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AC(); try { await ctx.resume(); } catch {}
-      const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
-      this.shared = { stream, ctx, an };
-      stream.getTracks().forEach((t) => { t.onended = () => { voice.log("microphone was taken away by the phone"); this.shared = null; }; t.enabled = false; });
-      voice.log("microphone opened once for the conversation (" + (Date.now() - t0) + " ms, audio " + ctx.state + ")");
-      return true;
-    } catch (e) { voice.log("could not open the microphone: " + (e && e.name) + " " + (e && e.message)); this.release(); return false; }
+    } catch (e) { try { ctx.close(); } catch {} throw e; }
+    if (ctx.state !== "running") { try { await Promise.race([ctx.resume(), new Promise((r) => setTimeout(r, 1500))]); } catch {} }     // never wait on it forever
+    const source = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    const mute = ctx.createGain(); mute.gain.value = 0;                  // the graph must reach the output to run; this keeps it silent
+    source.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    const g = { stream, ctx, source, proc, mute, rate: ctx.sampleRate };
+    proc.onaudioprocess = (e) => { if (this._g === g) this._pcm(e.inputBuffer.getChannelData(0)); };
+    stream.getTracks().forEach((t) => { t.onended = () => { voice.log("the phone took the microphone away"); if (this.shared === g) this.shared = null; }; });
+    voice.log("microphone opened (" + (Date.now() - t0) + " ms, audio " + ctx.state + ", " + Math.round(ctx.sampleRate / 1000) + " kHz)");
+    return g;
   }
-  alive() { const s = this.shared; return !!s && s.ctx.state !== "closed" && s.stream.getTracks().length > 0 && s.stream.getTracks().every((t) => t.readyState === "live"); }
-  mute(on) { if (this.shared) this.shared.stream.getTracks().forEach((t) => { t.enabled = !on; }); }
-  release() {
-    const s = this.shared; this.shared = null;
-    if (!s) return;
-    try { s.stream.getTracks().forEach((t) => { t.onended = null; t.stop(); }); } catch {}
-    try { s.ctx.close(); } catch {}
+  _closeGraph(g) {
+    if (!g) return;
+    try { g.proc.onaudioprocess = null; g.source.disconnect(); g.proc.disconnect(); g.mute.disconnect(); } catch {}
+    try { g.stream.getTracks().forEach((t) => { t.onended = null; t.stop(); }); } catch {}
+    try { g.ctx.close(); } catch {}
+  }
+
+  // Conversation mode: open the microphone ONCE, from a tap, and keep it (phones refuse to open it on their own later).
+  async prime() {
+    if (this.alive()) return true;
+    this.release();
+    try { this.shared = await this._openGraph(); return true; }
+    catch (e) { voice.log("could not open the microphone: " + (e && e.name) + " " + (e && e.message)); this.release(); return false; }
+  }
+  alive() { const g = this.shared; return !!g && g.ctx.state !== "closed" && g.stream.getTracks().length > 0 && g.stream.getTracks().every((t) => t.readyState === "live"); }
+  release() { const g = this.shared; this.shared = null; this._closeGraph(g); }
+  mute() {}
+  // The phone may pause the audio engine after other audio plays; try to restart it.
+  async ensureRunning() {
+    const g = this.shared; if (!g) return false;
+    if (g.ctx.state !== "running") {
+      voice.log("audio engine was " + g.ctx.state + " — restarting it");
+      try { await Promise.race([g.ctx.resume(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+    }
+    return g.ctx.state === "running";
   }
 
   start() {
     if (this.state !== "idle") throw new Error("InvalidStateError");
-    this.state = "starting"; this._abort = false; this._heard = false;
-    this._run().catch((e) => { voice.log("listening failed: " + (e && e.message)); console.error("listening failed", e); this._cleanup(); this._finish("audio-capture"); });
+    this.state = "starting"; this._abort = false;
+    this._run().catch((e) => { voice.log("listening failed: " + (e && e.message)); this._cleanup(); this._finish("audio-capture"); });
   }
-  stop() { if (this.state === "listening") this._stopRecorder(); }
-  abort() { this._abort = true; if (this.state === "listening") this._stopRecorder(); }
+  stop() { if (this.state === "listening") this._endCapture("stopped"); }
+  abort() { this._abort = true; if (this.state === "listening") this._endCapture("aborted"); }
+
   async _run() {
-    let stream, an, ctx;
-    if (this.alive()) {                                   // conversation mode: reuse the microphone opened by the tap
-      ({ stream, an, ctx } = this.shared); this._shared = true;
-      if (ctx.state === "suspended") { try { await ctx.resume(); } catch {} }
-      this.mute(false);
-    } else {                                              // push-to-talk: open it for this one utterance (we're inside a tap)
+    if (this.alive()) {                                   // conversation: reuse the microphone the tap opened
+      this._shared = true;
+      if (!(await this.ensureRunning())) { voice.log("audio engine would not restart"); return this._finish("not-allowed"); }
+      this._g = this.shared;
+    } else {                                              // push-to-talk: open it for this one utterance (we are inside a tap)
       this._shared = false;
-      try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
-      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+      try { this._g = await this._openGraph(); }
       catch (e) { voice.log("microphone refused: " + (e && e.name)); return this._finish("not-allowed"); }
-      if (this._abort) { stream.getTracks().forEach((t) => t.stop()); return this._finish(null); }
-      const AC = window.AudioContext || window.webkitAudioContext;
-      ctx = new AC(); if (ctx.state === "suspended") ctx.resume().catch(() => {});
-      an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
-      this.stream = stream; this.ctx = ctx;
+      if (this._abort) { this._closeGraph(this._g); this._g = null; return this._finish(null); }
     }
+    const g = this._g;
+    this.chunks = []; this._t = 0; this._heard = false; this._lastVoice = 0; this._floor = -1; this._peak = 0; this._cb = 0; this._startedAt = Date.now(); this._lastCb = Date.now();
     this.state = "listening";
-    const buf = new Uint8Array(an.fftSize);
-    const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
-    const rec = (this.rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined));
-    this.mime = (rec.mimeType || mime || "audio/webm"); this.chunks = [];
-    rec.ondataavailable = (e) => { if (e.data && e.data.size) this.chunks.push(e.data); };
-    rec.onstop = () => this._onRecorded();
-    rec.start(250);
-    voice.log("listening");
-    // Voice detection: "background" is the quietest recent level (it only creeps upward slowly), so speech that
-    // starts the instant you tap is never mistaken for room noise. Speech = clearly above that, within limits.
-    const t0 = Date.now(); let lastVoice = 0, floor = -1;
+    voice.log("listening (audio " + g.ctx.state + ", mic " + g.stream.getTracks().map((t) => t.readyState + (t.muted ? "/muted" : "/live")).join(",") + ")");
+    // The phone can stop feeding us audio — before we start OR part-way through (after other audio plays). Notice, try to
+    // restart the engine, and if that fails say so, instead of showing "listening" to silence.
+    clearInterval(this.timer);
     this.timer = setInterval(() => {
-      an.getByteTimeDomainData(buf);
-      let sum = 0; for (const v of buf) sum += ((v - 128) / 128) ** 2;
-      const rms = Math.sqrt(sum / buf.length), now = Date.now();
-      this.onLevel && this.onLevel(Math.min(1, rms * 5));
-      floor = floor < 0 ? rms : Math.min(rms, floor * 1.01 + 0.0003);
-      const threshold = Math.min(0.06, Math.max(0.02, floor * 3));
-      if (now - t0 < 120) return;                        // skip the device's start-up blip
-      if (rms > threshold) { this._heard = true; lastVoice = now; }
-      if (this._heard && now - lastVoice > 1200) this._stopRecorder();                   // you stopped talking
-      else if (!this._heard && now - t0 > (this.continuous ? 9000 : 6000)) this._stopRecorder();   // nobody spoke
-      else if (now - t0 > 30000) this._stopRecorder();
-    }, 60);
+      if (this.state !== "listening") return;
+      const quiet = Date.now() - this._lastCb;
+      if (quiet > 1500 && !this._warned) { this._warned = true; voice.log("no audio arriving for " + (quiet / 1000).toFixed(1) + " s (audio " + g.ctx.state + ") — trying to restart it"); try { g.ctx.resume(); } catch {} }
+      if (quiet > 4000) { clearInterval(this.timer); this.state = "processing"; voice.log("the microphone has gone silent — needs a tap"); this._cleanup(); this._finish("not-allowed"); }
+    }, 500);
+    this._warned = false;
   }
-  _stopRecorder() {
+
+  _pcm(data) {
+    if (this.state !== "listening") return;
+    this._cb++; this._lastCb = Date.now();
+    this.chunks.push(new Float32Array(data));
+    let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+    const rms = Math.sqrt(sum / data.length), rate = this._g.rate;
+    this._t += data.length / rate;
+    if (rms > this._peak) this._peak = rms;
+    this.onLevel && this.onLevel(Math.min(1, rms * 5));
+    // "Background" is the quietest recent level and only creeps up slowly, so speech that starts the instant you tap
+    // is never mistaken for room noise. Speech = clearly above that, within limits.
+    this._floor = this._floor < 0 ? rms : Math.min(rms, this._floor * 1.02 + 0.0003);
+    const threshold = Math.min(0.06, Math.max(0.02, this._floor * 3));
+    if (this._t < 0.12) return;
+    if (rms > threshold) { this._heard = true; this._lastVoice = this._t; }
+    if (this._heard && this._t - this._lastVoice > 1.2) this._endCapture("silence");
+    else if (!this._heard && this._t > (this.continuous ? 9 : 6)) this._endCapture("nobody spoke");
+    else if (this._t > 30) this._endCapture("too long");
+  }
+
+  _endCapture(why) {
+    if (this.state !== "listening") return;
     clearInterval(this.timer); this.state = "processing"; this.onLevel && this.onLevel(0);
-    try { if (this.rec && this.rec.state !== "inactive") this.rec.stop(); else this._onRecorded(); } catch { this._onRecorded(); }
+    const g = this._g, chunks = this.chunks, heard = this._heard, peak = this._peak, secs = this._t;
+    this.chunks = [];
+    this._cleanup();
+    this._after({ chunks, rate: g.rate, heard, peak, secs, why });
   }
+
   _cleanup() {
     clearInterval(this.timer);
-    if (this._shared) { this.mute(true); return; }          // keep the conversation's microphone, just mute it
-    try { this.stream && this.stream.getTracks().forEach((t) => t.stop()); } catch {}
-    try { this.ctx && this.ctx.close(); } catch {}
-    this.stream = this.ctx = null;
+    const g = this._g; this._g = null;
+    if (!this._shared) this._closeGraph(g);                // keep the conversation's microphone; close a push-to-talk one
   }
-  async _onRecorded() {
-    this._cleanup();                                   // release the microphone immediately — before anything speaks
-    const blob = new Blob(this.chunks || [], { type: this.mime });
-    this.chunks = [];
+
+  async _after({ chunks, rate, heard, peak, secs, why }) {
     if (this._abort) return this._finish(null);
-    if (!this._heard || blob.size < 800) return this._finish("no-speech");
-    voice.log("sending " + Math.round(blob.size / 1000) + " KB for transcription");
+    if (!heard) { voice.log("no speech heard (" + why + ", loudest level " + peak.toFixed(3) + ", " + secs.toFixed(1) + " s)"); return this._finish("no-speech"); }
+    const blob = encodeWav(chunks, rate, 16000);
+    voice.log("sending " + Math.round(blob.size / 1000) + " KB (" + secs.toFixed(1) + " s) for transcription");
     try {
-      const res = await fetch("/api/voice/transcribe", { method: "POST", headers: { "content-type": this.mime }, body: blob, signal: AbortSignal.timeout(25000) });
+      const res = await fetch("/api/voice/transcribe", { method: "POST", headers: { "content-type": "audio/wav" }, body: blob, signal: AbortSignal.timeout(25000) });
       if (res.status === 401) { showLogin(); return this._finish(null); }
       if (res.status === 429) return this._finish("cap");
-      if (!res.ok) return this._finish("network");
+      if (!res.ok) { voice.log("transcription answered " + res.status); return this._finish("network"); }
       const { text } = await res.json();
       voice.log("heard: “" + String(text).slice(0, 60) + "”");
       if (this._abort) return this._finish(null);
@@ -1201,11 +1232,30 @@ class CloudRec {
       return this._finish(null);
     } catch (e) { voice.log("transcription failed: " + (e && e.name)); return this._finish("network"); }
   }
+
   _finish(err) {
     this.state = "idle";
     if (err) this.onerror && this.onerror({ error: err });
     this.onend && this.onend();
   }
+}
+
+// Float32 chunks at `inRate` → 16-bit mono WAV at `outRate` (block-averaged, which also acts as a low-pass filter).
+function encodeWav(chunks, inRate, outRate) {
+  let n = 0; for (const c of chunks) n += c.length;
+  const ratio = inRate / outRate, outLen = Math.floor(n / ratio);
+  const all = new Float32Array(n); { let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; } }
+  const buf = new ArrayBuffer(44 + outLen * 2), v = new DataView(buf);
+  const w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + outLen * 2, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, outRate, true); v.setUint32(28, outRate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, outLen * 2, true);
+  for (let j = 0; j < outLen; j++) {
+    const start = Math.floor(j * ratio), end = Math.min(n, Math.max(start + 1, Math.floor((j + 1) * ratio)));
+    let acc = 0; for (let k = start; k < end; k++) acc += all[k];
+    const x = Math.max(-1, Math.min(1, acc / (end - start)));
+    v.setInt16(44 + j * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
 }
 
 (function setupVoiceOut() {
@@ -1330,7 +1380,7 @@ voice.initIn = function initVoiceIn() {
   const mic = $("mic"), convoBtn = $("convo");
   // Which engine listens: the browser's own (free) or OpenAI via the recorder. OpenAI is the only option
   // where the browser has none (the installed iPhone app); elsewhere the user chooses in Settings.
-  const canCloud = voice.cfg.ready && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && typeof MediaRecorder !== "undefined";
+  const canCloud = voice.cfg.ready && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && !!((window.AudioContext || window.webkitAudioContext) && (window.AudioContext || window.webkitAudioContext).prototype.createScriptProcessor);
   const useCloud = canCloud && (!SR || getPref("hj_stt", "browser") === "openai");
   if (!SR && !useCloud) return;
   voice.listenEngine = useCloud ? "openai" : "browser";
@@ -1457,7 +1507,8 @@ voice.initIn = function initVoiceIn() {
   ["click", "touchend", "keydown"].forEach((t) => addEventListener(t, () => {
     if (convo && useCloud && needsTap && !listening) {
       needsTap = false; $("chatErr").textContent = "";
-      rec.prime().then((ok) => { if (ok && convo) startListening(); else { needsTap = true; } });
+      if (rec.alive()) { rec.ensureRunning().then((ok) => { if (ok && convo) startListening(); else rec.release(), rec.prime().then((ok2) => { if (ok2 && convo) startListening(); else needsTap = true; }); }); }
+      else rec.prime().then((ok) => { if (ok && convo) startListening(); else { needsTap = true; } });
     }
   }, true));
 
