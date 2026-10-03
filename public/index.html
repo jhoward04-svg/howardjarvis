@@ -34,6 +34,8 @@
   li small { color:var(--dim); display:block; }
   li .x { margin-left:auto; background:none; color:var(--dim); padding:0 6px; }
   .err { color:var(--danger); min-height:1.2em; }
+  #mic.listening { background:var(--danger); border-color:var(--danger); color:#fff; animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity:.6; } }
 </style>
 </head>
 <body>
@@ -55,6 +57,7 @@
       <div class="err" id="chatErr"></div>
       <form class="row" id="chatForm">
         <input id="msg" placeholder="Ask Jarvis, or say “remind me to call Mom Friday”" autocomplete="off" required>
+        <button type="button" id="mic" class="ghost" title="Speak" aria-label="Speak" aria-pressed="false" hidden>🎤</button>
         <button id="send">Send</button>
       </form>
     </section>
@@ -179,6 +182,38 @@ $("noteForm").onsubmit = async (e) => {
   catch (err) { $("chatErr").textContent = err.message; return; }
   $("noteTitle").value = ""; $("noteBody").value = ""; loadNotes();
 };
+
+// Voice input: the browser's built-in speech recognition (Chrome/Edge/Safari).
+// It fills the chat box; the user reviews and presses Send, so a misheard
+// phrase never becomes a task on its own. Hidden where unsupported (Firefox).
+(function setupVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const mic = $("mic");
+  if (!SR) return;
+  mic.hidden = false;
+  const rec = new SR();
+  rec.lang = navigator.language || "en-US";
+  rec.interimResults = true;
+  rec.continuous = false;
+  let base = "", listening = false;
+  const setListening = (on) => { listening = on; mic.classList.toggle("listening", on); mic.setAttribute("aria-pressed", String(on)); };
+  rec.onresult = (e) => {
+    let text = "";
+    for (const r of e.results) text += r[0].transcript;
+    $("msg").value = (base ? base + " " : "") + text.trim();
+  };
+  rec.onend = () => { setListening(false); $("msg").focus(); };
+  rec.onerror = (e) => {
+    const why = { "not-allowed": "microphone access was blocked — allow it in the browser's address bar", "service-not-allowed": "microphone access was blocked", "no-speech": "didn't hear anything", "audio-capture": "no microphone found", "network": "speech service unreachable" };
+    $("chatErr").textContent = "Voice: " + (why[e.error] || e.error);
+  };
+  mic.onclick = () => {
+    if (listening) { rec.stop(); return; }
+    $("chatErr").textContent = "";
+    base = $("msg").value.trim();
+    try { rec.start(); setListening(true); } catch { /* already started */ }
+  };
+})();
 
 api("/me").then(showApp).catch(() => {});
 </script>
