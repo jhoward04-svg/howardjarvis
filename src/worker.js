@@ -185,6 +185,10 @@ async function handleApi(request, env, url) {
     const r = await addTask(env, body);
     return json(r, r.error ? 400 : 201);
   }
+  if (pathname === "/api/tasks/done" && method === "DELETE") {          // "Clear finished"
+    const r = await env.DB.prepare("DELETE FROM tasks WHERE done_at IS NOT NULL").run();
+    return json({ ok: true, removed: r.meta.changes || 0 });
+  }
   const taskMatch = pathname.match(/^\/api\/tasks\/([\w-]+)$/);
   if (taskMatch && method === "PATCH") {
     const body = await request.json().catch(() => ({}));

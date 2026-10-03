@@ -341,7 +341,7 @@
       <div id="log"></div>
     </section>
 
-    <section class="panel" id="p-tasks" data-in="home tasks"><h2>Task Queue <span id="taskCount"></span></h2>
+    <section class="panel" id="p-tasks" data-in="home tasks"><h2>Task Queue <span><span id="taskCount"></span> <button type="button" class="ghost" id="clearDone" hidden style="padding:2px 8px;font-size:.6rem">Clear finished</button></span></h2>
       <div class="scroll"><ul id="tasks"></ul></div>
       <form class="row2" id="taskForm">
         <input id="taskText" placeholder="Add a task" required>
@@ -419,6 +419,9 @@
         <div class="hint" id="oaOff">OpenAI voice isn’t set up yet. Add an <b>OPENAI_API_KEY</b> secret to the Worker to enable it.</div>
         <label class="srow" id="devVoiceRow"><span>Device voice</span> <select id="voiceSel"></select></label>
         <div class="srow"><button type="button" class="ghost" id="voicePreview">▶ Test speech</button><span class="hint" id="voiceHint"></span></div>
+        <div class="srow"><button type="button" class="ghost" id="voiceCheck">🩺 Check voice on this device</button></div>
+        <pre id="voiceDiag" class="hint" style="white-space:pre-wrap;margin:0;user-select:text" hidden></pre>
+        <div class="hint" id="appVersion"></div>
         <div class="hint">If you hear nothing: check the phone isn’t on silent, turn the media volume up, and tap once anywhere on the page first. The line above says what the browser reported.</div>
         <div class="hint">Device voices: on iPhone/iPad/Mac, more British voices can be downloaded in Settings → Accessibility → Spoken Content → Voices → English (UK).</div>
       </div>
@@ -684,6 +687,7 @@ function renderDash() {
   renderCore(open.length);
   $("bTasks").textContent = open.length; $("bMem").textContent = state.notes.length; $("bTurns").textContent = state.turns;
   $("st-mem").textContent = state.notes.length; $("st-turns").textContent = state.turns; $("st-open").textContent = open.length;
+  { const finished = state.tasks.filter((t) => t.done_at).length; $("clearDone").hidden = !finished; $("clearDone").textContent = "Clear finished (" + finished + ")"; }
   $("taskCount").textContent = open.length ? open.length + " open" + (over.length ? " · " + over.length + " overdue" : "") : "";
   $("memCount").textContent = state.notes.length ? String(state.notes.length) : "";
   $("turnsLabel").textContent = state.turns ? state.turns + " exchanges" : "";
@@ -794,6 +798,49 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
+const APP_VERSION = "2026-10-03.9";
+$("appVersion").textContent = "App version " + APP_VERSION;
+
+// One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
+// phone can be diagnosed from a screenshot instead of guesswork.
+$("voiceCheck").onclick = async () => {
+  const out = $("voiceDiag"); out.hidden = false;
+  const lines = []; const show = () => (out.textContent = lines.join("\n"));
+  const add = (t) => { lines.push(t); show(); };
+  const ua = navigator.userAgent;
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  add("version " + APP_VERSION + " · " + (standalone ? "installed app" : "browser tab") + " · " + (/iphone|ipad|ipod/i.test(ua) ? "iOS" : /android/i.test(ua) ? "Android" : "desktop"));
+  add("OpenAI voice configured on server: " + (voice.cfg.ready ? "yes" : "NO"));
+  add("speaking with: " + (voice.cfg.ready && getPref("hj_tts", "openai") === "openai" ? "OpenAI “" + voice.oaVoice() + "”" : "device voice") + " · listening with: " + (voice.listenEngine || "none"));
+  add("browser speech recognition: " + ((window.SpeechRecognition || window.webkitSpeechRecognition) ? "present" : "absent") + " · MediaRecorder: " + (typeof MediaRecorder !== "undefined" ? "present (" + (["audio/webm;codecs=opus", "audio/mp4"].filter((t) => MediaRecorder.isTypeSupported(t)).join(", ") || "no common type") + ")" : "absent"));
+  add("audio session API: " + (navigator.audioSession ? "present (" + navigator.audioSession.type + ")" : "absent"));
+  if (!voice.cfg.ready) { add("→ add OPENAI_API_KEY to the Worker, then reopen the app."); return; }
+  add("testing OpenAI speech…");
+  try {
+    try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}
+    const t0 = performance.now();
+    const res = await fetch("/api/voice/speak", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Voice check complete, Sir.", voice: voice.oaVoice() }) });
+    if (!res.ok) { let m = ""; try { m = (await res.json()).error; } catch {} return add("✗ server answered " + res.status + (m ? ": " + m : "")); }
+    const blob = await res.blob();
+    add("✓ server returned " + Math.round(blob.size / 1000) + " KB of " + (blob.type || "audio") + " in " + Math.round(performance.now() - t0) + " ms");
+    const a = new Audio(); a.setAttribute("playsinline", ""); a.src = URL.createObjectURL(blob);
+    const outcome = await new Promise((ok) => {
+      const timer = setTimeout(() => ok("started but never finished within 8 s"), 8000);
+      a.onended = () => { clearTimeout(timer); ok("played to the end"); };
+      a.onerror = () => { clearTimeout(timer); ok("✗ the audio could not be decoded (" + (a.error ? a.error.code : "?") + ")"); };
+      a.play().catch((e) => { clearTimeout(timer); ok("✗ play() was refused: " + e.name + " — " + e.message); });
+    });
+    add((outcome.startsWith("✗") ? "" : "✓ ") + "playback: " + outcome + (outcome.startsWith("✗") ? "" : " — did you hear it?"));
+  } catch (e) { add("✗ " + e.name + ": " + e.message); }
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
+      const st = await navigator.mediaDevices.getUserMedia({ audio: true }); st.getTracks().forEach((t) => t.stop()); add("✓ microphone access granted");
+    } else add("✗ no microphone API in this browser");
+  } catch (e) { add("✗ microphone: " + e.name + " — " + e.message); }
+  add("done — send me a screenshot of this box if anything shows ✗.");
+};
+
 function paintVoiceSettings() {
   const ready = voice.cfg.ready;
   $("oaBlock").hidden = !ready; $("oaOff").hidden = ready;
@@ -943,6 +990,11 @@ $("chatForm").onsubmit = async (e) => {
   $("send").disabled = false; $("msg").focus();
 };
 
+$("clearDone").onclick = async () => {
+  try { await api("/tasks/done", { method: "DELETE" }); loadTasks(); }
+  catch (err) { $("chatErr").textContent = err.message; }
+};
+
 $("taskForm").onsubmit = async (e) => {
   e.preventDefault();
   try { await api("/tasks", { method: "POST", body: { text: $("taskText").value, due_date: $("taskDue").value || null } }); }
@@ -1045,6 +1097,7 @@ class CloudRec {
   abort() { this._abort = true; if (this.state === "listening") this._stopRecorder(); }
   async _run() {
     let stream;
+    try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
     catch { return this._finish("not-allowed"); }
     if (this._abort) { stream.getTracks().forEach((t) => t.stop()); return this._finish(null); }
@@ -1166,7 +1219,7 @@ class CloudRec {
   // ---- OpenAI voice: the server turns text into an MP3 (British-butler instructions live on the server),
   // and one persistent <audio> element plays it. iOS only lets an element play if it was started by a real tap
   // once, so every tap "unlocks" it with a silent clip. Any failure falls back to the device voice.
-  const audio = new Audio(); audio.preload = "auto"; audio.playsInline = true;
+  const audio = new Audio(); audio.preload = "auto"; audio.playsInline = true; audio.setAttribute("playsinline", ""); audio.muted = false; audio.volume = 1;
   const silent = (() => { const n = 800, b = new ArrayBuffer(44 + n * 2), v = new DataView(b); const w = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
     w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
     v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
@@ -1176,6 +1229,7 @@ class CloudRec {
   voice.oaVoice = () => getPref("hj_oa_voice", "onyx");
   voice.stopSpeaking = () => { try { synth && synth.cancel(); } catch {} try { audio.pause(); } catch {} };
   const cloudSay = (text, done, report = () => {}) => {
+    try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}   // iOS: route sound to the loudspeaker, not the call earpiece
     unlockAudio();                                      // we're usually inside a tap here: keep the element unlocked
     const spoken = String(text).slice(0, 1500);
     let finished = false, pulse = 0, guard = 0, url = "";
