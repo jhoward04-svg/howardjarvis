@@ -124,6 +124,7 @@
   /* conversation */
   #log { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; min-height:140px; max-height:420px; padding-right:2px; }
   .msg { max-width:90%; padding:7px 11px; border-radius:6px; white-space:pre-wrap; word-wrap:break-word; font-size:.9rem; }
+  .msg .spk { padding:0 6px; margin-left:8px; font-size:.8rem; vertical-align:middle; border-radius:99px; }
   .msg.user { align-self:flex-end; background:rgba(58,200,255,.18); border:1px solid var(--accent); }
   .msg.assistant { align-self:flex-start; background:rgba(2,10,20,.85); border:1px solid var(--line); border-left:3px solid var(--accent-2); }
 
@@ -450,6 +451,11 @@ function domMsg(role, text, thumb) {
   const m = el("div", { className: "msg " + role });
   if (thumb) m.append(el("img", { src: thumb, alt: "Photo you sent" }));
   m.append(document.createTextNode(text));
+  if (role === "assistant" && "speechSynthesis" in window) {
+    const b = el("button", { type: "button", className: "ghost spk", textContent: "🔊", title: "Hear this", "aria-label": "Hear this reply" });
+    b.onclick = () => { b.disabled = true; voice.say(text.replace(/^[☀️⏰]\s*/u, ""), () => { b.disabled = false; }); };
+    m.append(b);
+  }
   return m;
 }
 function renderLog() {
@@ -664,7 +670,7 @@ function fillVoices() {
   if (!("speechSynthesis" in window)) { sel.replaceChildren(el("option", { textContent: "Not supported in this browser" })); sel.disabled = true; $("voicePreview").disabled = true; return; }
   const list = voice.list ? voice.list() : [];
   let saved = ""; try { saved = localStorage.getItem("hj_voice") || ""; } catch {}
-  sel.replaceChildren(el("option", { value: "", textContent: "Automatic (best British voice)" }),
+  sel.replaceChildren(el("option", { value: "", textContent: "Device default (recommended)" }),
     ...list.map((v) => el("option", { value: v.name, textContent: `${v.name} (${v.lang})`, selected: v.name === saved })));
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
@@ -719,7 +725,7 @@ $("chatForm").onsubmit = async (e) => {
     addMsg("assistant", r.answer);
     state.chatOk = true; state.turns += 1; renderDash();
     if (r.refresh) { loadTasks(); loadNotes(); }
-    if (voice.speakAlways || viaVoice) { try { voice.say(r.answer, () => voice.resume()); speaking = true; } catch (e2) { console.error("speech failed", e2); orb.set("idle"); } }
+    if (voice.speakAlways || viaVoice) { try { voice.say(r.answer, () => voice.resume(), (msg) => { if (/^(blocked|error)/.test(msg)) $("chatErr").textContent = "Jarvis couldn't speak automatically — tap the 🔊 on his reply to hear it."; }); speaking = true; } catch (e2) { console.error("speech failed", e2); orb.set("idle"); } }
     if (!speaking) orb.set("idle");
   } catch (err) { $("chatErr").textContent = err.message; state.chatOk = false; renderDash(); orb.set("idle"); }
   if (!speaking) voice.resume();
@@ -816,18 +822,14 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
     try { localStorage.setItem("hj_speak", voice.speakAlways ? "1" : "0"); } catch {}
     if (!voice.speakAlways) { synth.cancel(); orb.set("idle"); }
   };
-  // Voice choice: the user's saved pick, else the best British voice the device has.
-  // On Apple devices that means a voice called "… Voice 2" if present, then Daniel/Arthur/Oliver.
   const norm = (l) => (l || "").replace("_", "-").toLowerCase();
   const voicesNow = () => { try { return synth.getVoices?.() || []; } catch { return []; } };
   const english = () => voicesNow().filter((v) => norm(v.lang).startsWith("en"));
+  // Only an explicit choice from Settings overrides the device's default voice. Auto-picking a
+  // "British" voice broke speech on phones where a voice is listed but not actually installed.
   voice.pick = () => {
-    const vs = voicesNow();
     let saved = null; try { saved = localStorage.getItem("hj_voice"); } catch {}
-    const exact = saved && vs.find((v) => v.name === saved);
-    if (exact) return exact;
-    const gb = vs.filter((v) => norm(v.lang) === "en-gb");
-    return gb.find((v) => /voice\s*2\b/i.test(v.name)) || gb.find((v) => /\b(arthur|daniel|oliver)\b/i.test(v.name)) || gb[0] || null;
+    return (saved && voicesNow().find((v) => v.name === saved)) || null;
   };
   voice.list = () => english().sort((a, b) => (norm(b.lang) === "en-gb") - (norm(a.lang) === "en-gb") || a.name.localeCompare(b.name));
   // Phones (iOS especially) are fussy: speech must be unlocked by a real tap/keypress, a cancel()
@@ -835,13 +837,13 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
   // doesn't always fire. So: unlock on the first tap, only cancel if something is playing, retry once
   // with the default voice if nothing starts, and always finish the turn so the mic resumes.
   voice.say = (text, done, report = () => {}) => {
-    try { synth.resume?.(); if (synth.speaking || synth.pending) synth.cancel(); } catch {}
+    try { synth.cancel(); } catch {}
     let finished = false, started = false, retried = false, guard = 0;
     const finish = (why) => { if (finished) return; finished = true; clearTimeout(guard); clearTimeout(startWatch); orb.set("idle"); report(why); done && done(); };
     const attempt = (useVoice) => {
       const u = new SpeechSynthesisUtterance(text);
       const v = useVoice ? voice.pick() : null;
-      if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-GB";
+      if (v) { u.voice = v; u.lang = v.lang; }          // no explicit voice/lang unless the user chose one
       u.onstart = () => { started = true; orb.set("speaking"); report("speaking" + (v ? " with " + v.name : " with the default voice")); };
       u.onboundary = () => orb.kick(0.35);
       u.onend = () => finish("finished");
