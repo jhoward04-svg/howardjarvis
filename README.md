@@ -28,3 +28,10 @@ npm run deploy
 
 Create `.dev.vars` with `JARVIS_PASSWORD`, `SESSION_SECRET`, `ANTHROPIC_API_KEY`, then
 `npm run migrate:local && npm run dev`. Tests: `npm test`.
+
+## Photos
+
+The 📷 button opens the phone camera (🖼 picks from the gallery; on desktop both open a file
+picker; you can also paste an image into the message box). The browser shrinks the photo to
+1568 px / JPEG before upload; the Worker re-validates it and sends it to Claude for that one
+turn. Photos are **not** stored — the history keeps only a "📷 [photo]" text marker.

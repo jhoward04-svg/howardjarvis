@@ -176,13 +176,39 @@ async function runTool(env, name, input) {
   return { error: `unknown tool ${name}` };
 }
 
+// ---------- photos ----------
+// The browser downsizes camera photos before upload; this re-checks everything
+// anyway because it is request input. Images go to Claude for this one turn only —
+// they are never written to D1 (history stores a text marker, not the picture).
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const MAX_IMAGE_B64 = 6_000_000;      // ~4.5 MB decoded, under the API's 5 MB image limit
+
+export function parseImage(img) {
+  if (!img || typeof img !== "object") return null;
+  const { media_type: type, data } = img;
+  if (!IMAGE_TYPES.includes(type) || typeof data !== "string") return null;
+  if (data.length < 100 || data.length > MAX_IMAGE_B64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return null;
+  return { media_type: type, data };
+}
+
+export function buildUserContent(text, image) {
+  if (!image) return text;
+  return [{ type: "image", source: { type: "base64", media_type: image.media_type, data: image.data } }, { type: "text", text }];
+}
+
+const PHOTO_PROMPT =
+  "Here is a photo. Tell me what it shows and pull out anything useful — text, names, numbers, dates, prices. Keep it brief.";
+
 export function buildSystemPrompt(tasks, notes, today) {
   return (
     "You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), Howard's personal AI assistant at howardjarvis.app. " +
     "Speak as a dry, composed British butler: address him as \"Sir\", keep a touch of understated wit, and stay brief — a sentence or two " +
     "unless detail is asked for. You can add tasks, complete tasks and save notes with your tools; when you do, " +
     "confirm in plain words what you did. Never claim you did something you didn't call a tool for, and never invent " +
-    "tasks or notes that aren't in the data below. Resolve relative dates (\"tomorrow\", \"Friday\") against today's date.\n\n" +
+    "tasks or notes that aren't in the data below. When Howard sends a photo, read it carefully: transcribe the relevant text, " +
+    "identify what it is, and report the key details (for a receipt, business card, label or document, the main fields). Say " +
+    "plainly if the image is unclear — never guess at what you can't see. Only save notes or tasks from a photo when he asks; " +
+    "otherwise offer. Resolve relative dates (\"tomorrow\", \"Friday\") against today's date.\n\n" +
     `Today is ${today}.\n\nOpen tasks (JSON):\n${JSON.stringify(tasks)}\n\nRecent notes (JSON):\n${JSON.stringify(notes.slice(0, 20))}`
   );
 }
@@ -207,10 +233,12 @@ async function chat(request, env) {
     return json({ error: "invalid JSON" }, 400);
   }
   const text = clean(body.message, 4000);
-  if (!text) return json({ error: "message is required" }, 400);
+  const image = body.image == null ? null : parseImage(body.image);
+  if (body.image != null && !image) return json({ error: "that image can't be used — send a JPEG, PNG, WebP or GIF under 4 MB" }, 400);
+  if (!text && !image) return json({ error: "message is required" }, 400);
 
   const { results: past } = await env.DB.prepare("SELECT role, content FROM messages ORDER BY id DESC LIMIT 20").all();
-  const messages = [...past.reverse().map((m) => ({ role: m.role, content: m.content })), { role: "user", content: text }];
+  const messages = [...past.reverse().map((m) => ({ role: m.role, content: m.content })), { role: "user", content: buildUserContent(text || PHOTO_PROMPT, image) }];
   const today = new Date().toISOString().slice(0, 10);
   let toolsUsed = false;
 
@@ -232,7 +260,7 @@ async function chat(request, env) {
     }
     if (!answer) answer = toolsUsed ? "Done." : "I didn't get a response — try again.";
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO messages (role, content) VALUES ('user', ?)").bind(text),
+      env.DB.prepare("INSERT INTO messages (role, content) VALUES ('user', ?)").bind(image ? `📷 [photo] ${text}`.trim() : text),
       env.DB.prepare("INSERT INTO messages (role, content) VALUES ('assistant', ?)").bind(answer),
     ]);
     return json({ answer, refresh: toolsUsed });

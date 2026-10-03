@@ -164,6 +164,10 @@
   #chatForm { flex:1; display:flex; gap:8px; align-items:center; padding:6px 8px 6px 14px; border:1px solid var(--accent); border-radius:99px; box-shadow:var(--glow); background:rgba(2,10,20,.7); max-width:760px; margin:0 auto; }
   #chatForm input { border:0; background:transparent; box-shadow:none; padding:6px 4px; }
   #chatForm button { border-radius:99px; }
+  #attach { display:flex; align-items:center; gap:2px; flex:none; }
+  #attach img { height:34px; width:34px; object-fit:cover; border-radius:6px; border:1px solid var(--accent); }
+  #attach button { padding:0 6px; border:0; font-size:1rem; line-height:1; }
+  .msg img { display:block; max-width:180px; max-height:140px; border-radius:6px; margin-bottom:6px; border:1px solid var(--line); }
   #mic.listening { background:var(--danger); border-color:var(--danger); color:#fff; animation:pulse 1.2s infinite; }
   #mic:disabled { opacity:.35; cursor:not-allowed; }
   #chatErr { position:absolute; bottom:100%; left:0; right:0; text-align:center; padding:2px; }
@@ -346,7 +350,12 @@
     <div style="position:relative;flex:1;display:flex">
       <div class="err" id="chatErr"></div>
       <form id="chatForm">
-        <input id="msg" placeholder="Talk to JARVIS — or type here, Sir  ( / to focus )" autocomplete="off" required>
+        <span id="attach" hidden><img id="attachImg" alt="Attached photo"><button type="button" id="attachX" class="ghost" title="Remove photo" aria-label="Remove photo">×</button></span>
+        <input id="msg" placeholder="Talk to JARVIS — or type here, Sir  ( / to focus )" autocomplete="off">
+        <button type="button" id="cam" class="ghost" title="Take a photo" aria-label="Take a photo">📷</button>
+        <button type="button" id="gallery" class="ghost" title="Choose a photo" aria-label="Choose a photo">🖼</button>
+        <input type="file" id="photoCam" accept="image/*" capture="environment" hidden>
+        <input type="file" id="photoFile" accept="image/*" hidden>
         <button type="button" id="mic" class="ghost" title="Dictate" aria-label="Dictate" aria-pressed="false" hidden>🎤</button>
         <button id="send">Send</button>
       </form>
@@ -380,8 +389,11 @@ function el(tag, props = {}, ...kids) {
 function showLogin() { $("app").hidden = true; $("login").hidden = false; $("pw").focus(); }
 function showApp() { $("login").hidden = true; $("app").hidden = false; loadAll(); }
 
-function addMsg(role, text) {
-  $("log").append(el("div", { className: "msg " + role, textContent: text }));
+function addMsg(role, text, thumb) {
+  const m = el("div", { className: "msg " + role });
+  if (thumb) m.append(el("img", { src: thumb, alt: "Photo you sent" }));
+  m.append(document.createTextNode(text));
+  $("log").append(m);
   $("log").scrollTop = $("log").scrollHeight;
 }
 
@@ -528,14 +540,16 @@ $("logout").onclick = async () => { await api("/logout", { method: "POST" }); sh
 
 $("chatForm").onsubmit = async (e) => {
   e.preventDefault();
-  const text = $("msg").value.trim(); if (!text) return;
+  const text = $("msg").value.trim(), photo = photoState.cur;
+  if (!text && !photo) return;
   $("msg").value = ""; $("chatErr").textContent = ""; $("send").disabled = true;
-  addMsg("user", text);
+  addMsg("user", text || "(photo)", photo && photo.preview);
+  clearPhoto();
   const viaVoice = voice.dictated; voice.dictated = false;
   orb.set("thinking");
   let speaking = false;
   try {
-    const r = await api("/chat", { method: "POST", body: { message: text } });
+    const r = await api("/chat", { method: "POST", body: { message: text, ...(photo ? { image: { media_type: photo.type, data: photo.data } } : {}) } });
     addMsg("assistant", r.answer);
     state.chatOk = true; state.turns += 1; renderDash();
     if (r.refresh) { loadTasks(); loadNotes(); }
@@ -558,6 +572,35 @@ $("noteForm").onsubmit = async (e) => {
   catch (err) { $("chatErr").textContent = err.message; return; }
   $("noteTitle").value = ""; $("noteBody").value = ""; loadNotes();
 };
+
+// ---- Photos: shrink on the device (long edge 1568 px, JPEG) so a phone camera shot uploads quickly. ----
+const photoState = { cur: null };
+function clearPhoto() { photoState.cur = null; $("attach").hidden = true; $("attachImg").removeAttribute("src"); $("photoCam").value = ""; $("photoFile").value = ""; }
+async function loadPhoto(file) {
+  if (!file) return;
+  $("chatErr").textContent = "";
+  if (!file.type.startsWith("image/")) { $("chatErr").textContent = "That file isn't an image."; return; }
+  try {
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error("decode")); i.src = url; });
+    const k = Math.min(1, 1568 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    const dataUrl = c.toDataURL("image/jpeg", 0.85);
+    const data = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    if (data.length > 5_500_000) throw new Error("too large");
+    photoState.cur = { type: "image/jpeg", data, preview: dataUrl };
+    $("attachImg").src = dataUrl; $("attach").hidden = false; $("msg").focus();
+  } catch { clearPhoto(); $("chatErr").textContent = "Couldn't read that photo — try another (JPEG or PNG)."; }
+}
+$("cam").onclick = () => $("photoCam").click();
+$("gallery").onclick = () => $("photoFile").click();
+$("photoCam").onchange = (e) => loadPhoto(e.target.files[0]);
+$("photoFile").onchange = (e) => loadPhoto(e.target.files[0]);
+$("attachX").onclick = clearPhoto;
+$("msg").addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith("image/")); if (f) { e.preventDefault(); loadPhoto(f); } });
 
 // ---- Orb: one animation loop. --level (0..1) drives scale/glow/ring in CSS. ----
 // idle = slow breathing, thinking = fast pulse + spinning ring, listening = live
