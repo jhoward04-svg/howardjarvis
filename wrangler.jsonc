@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "howardjarvis",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-11",
+  "workers_dev": false,
+
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+
+  // howardjarvis.app must be an active zone on this Cloudflare account.
+  "routes": [
+    { "pattern": "howardjarvis.app", "custom_domain": true },
+    { "pattern": "www.howardjarvis.app", "custom_domain": true }
+  ],
+
+  "vars": {
+    "CLAUDE_MODEL": "claude-sonnet-5-5"
+  },
+
+  // Create with: npx wrangler d1 create howardjarvis
+  // then paste the returned id below. Secrets (never committed):
+  //   npx wrangler secret put JARVIS_PASSWORD -c howardjarvis/wrangler.jsonc
+  //   npx wrangler secret put SESSION_SECRET  -c howardjarvis/wrangler.jsonc   (any long random string)
+  //   npx wrangler secret put ANTHROPIC_API_KEY -c howardjarvis/wrangler.jsonc
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "howardjarvis",
+      "database_id": "REPLACE_WITH_D1_ID",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

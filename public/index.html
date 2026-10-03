@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Jarvis</title>
+<style>
+  :root { --bg:#0d0e18; --panel:#161829; --line:#262a44; --text:#e8eaf6; --dim:#8b90b0; --accent:#5b8cff; --danger:#ff6b6b; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f4f5fb; --panel:#fff; --line:#dcdff0; --text:#161829; --dim:#667; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui,sans-serif; min-height:100vh; }
+  [hidden] { display:none !important; }
+  button, input, textarea { font:inherit; color:inherit; }
+  input, textarea { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; width:100%; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 16px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--dim); border:1px solid var(--line); }
+  #login { max-width:340px; margin:20vh auto; padding:0 16px; display:grid; gap:12px; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:1.1rem; }
+  main { display:grid; grid-template-columns:1fr 340px; gap:16px; padding:16px; max-width:1100px; margin:0 auto; height:calc(100vh - 58px); }
+  @media (max-width:800px) { main { grid-template-columns:1fr; height:auto; } #chatbox { height:70vh; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; display:flex; flex-direction:column; min-height:0; }
+  h2 { margin:0 0 10px; font-size:.8rem; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); }
+  #log { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-bottom:8px; }
+  .msg { max-width:85%; padding:8px 12px; border-radius:12px; white-space:pre-wrap; word-wrap:break-word; }
+  .msg.user { align-self:flex-end; background:var(--accent); color:#fff; }
+  .msg.assistant { align-self:flex-start; background:var(--bg); border:1px solid var(--line); }
+  form.row { display:flex; gap:8px; }
+  #side { display:flex; flex-direction:column; gap:16px; overflow-y:auto; }
+  ul { list-style:none; margin:0 0 10px; padding:0; display:grid; gap:6px; }
+  li { display:flex; gap:8px; align-items:flex-start; }
+  li.done span { text-decoration:line-through; color:var(--dim); }
+  li small { color:var(--dim); display:block; }
+  li .x { margin-left:auto; background:none; color:var(--dim); padding:0 6px; }
+  .err { color:var(--danger); min-height:1.2em; }
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h1>Jarvis</h1>
+  <form id="loginForm" style="display:grid;gap:12px">
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button>Unlock</button>
+  </form>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div id="app" hidden>
+  <header><h1>Jarvis</h1><button class="ghost" id="logout">Lock</button></header>
+  <main>
+    <section id="chatbox">
+      <h2>Chat</h2>
+      <div id="log"></div>
+      <div class="err" id="chatErr"></div>
+      <form class="row" id="chatForm">
+        <input id="msg" placeholder="Ask Jarvis, or say “remind me to call Mom Friday”" autocomplete="off" required>
+        <button id="send">Send</button>
+      </form>
+    </section>
+    <div id="side">
+      <section>
+        <h2>Tasks</h2>
+        <ul id="tasks"></ul>
+        <form class="row" id="taskForm">
+          <input id="taskText" placeholder="New task" required>
+          <input id="taskDue" type="date" style="width:auto">
+          <button>+</button>
+        </form>
+      </section>
+      <section>
+        <h2>Notes</h2>
+        <ul id="notes"></ul>
+        <form id="noteForm" style="display:grid;gap:6px">
+          <input id="noteTitle" placeholder="Title" required>
+          <textarea id="noteBody" rows="2" placeholder="Body (optional)"></textarea>
+          <button>Save note</button>
+        </form>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function api(path, opts = {}) {
+  const res = await fetch("/api" + path, {
+    method: opts.method || "GET",
+    headers: opts.body ? { "content-type": "application/json" } : undefined,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && path !== "/login") { showLogin(); throw new Error("locked"); }
+  if (!res.ok) throw new Error(data.error || "request failed");
+  return data;
+}
+
+// Build DOM with textContent only — task/note/chat text is never parsed as HTML.
+function el(tag, props = {}, ...kids) {
+  const n = Object.assign(document.createElement(tag), props);
+  kids.forEach((k) => n.append(k));
+  return n;
+}
+
+function showLogin() { $("app").hidden = true; $("login").hidden = false; $("pw").focus(); }
+function showApp() { $("login").hidden = true; $("app").hidden = false; loadAll(); }
+
+function addMsg(role, text) {
+  $("log").append(el("div", { className: "msg " + role, textContent: text }));
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+async function loadTasks() {
+  const { tasks } = await api("/tasks");
+  const ul = $("tasks"); ul.replaceChildren();
+  if (!tasks.length) ul.append(el("li", { textContent: "Nothing open." }));
+  for (const t of tasks) {
+    const cb = el("input", { type: "checkbox", checked: !!t.done_at, style: "width:auto;margin-top:4px" });
+    cb.onchange = async () => { await api("/tasks/" + t.id, { method: "PATCH", body: { done: cb.checked } }); loadTasks(); };
+    const label = el("span", { textContent: t.text });
+    if (t.due_date) label.append(el("small", { textContent: "due " + t.due_date }));
+    const x = el("button", { className: "x", textContent: "×", title: "Delete" });
+    x.onclick = async () => { await api("/tasks/" + t.id, { method: "DELETE" }); loadTasks(); };
+    ul.append(el("li", { className: t.done_at ? "done" : "" }, cb, label, x));
+  }
+}
+
+async function loadNotes() {
+  const { notes } = await api("/notes");
+  const ul = $("notes"); ul.replaceChildren();
+  if (!notes.length) ul.append(el("li", { textContent: "No notes yet." }));
+  for (const n of notes) {
+    const label = el("span", { textContent: n.title });
+    if (n.body) label.append(el("small", { textContent: n.body }));
+    const x = el("button", { className: "x", textContent: "×", title: "Delete" });
+    x.onclick = async () => { await api("/notes/" + n.id, { method: "DELETE" }); loadNotes(); };
+    ul.append(el("li", {}, label, x));
+  }
+}
+
+async function loadAll() {
+  const { messages } = await api("/messages");
+  $("log").replaceChildren();
+  if (!messages.length) addMsg("assistant", "Hi Howard — what do you need?");
+  messages.forEach((m) => addMsg(m.role, m.content));
+  loadTasks(); loadNotes();
+}
+
+$("loginForm").onsubmit = async (e) => {
+  e.preventDefault(); $("loginErr").textContent = "";
+  try { await api("/login", { method: "POST", body: { password: $("pw").value } }); $("pw").value = ""; showApp(); }
+  catch (err) { $("loginErr").textContent = err.message; }
+};
+$("logout").onclick = async () => { await api("/logout", { method: "POST" }); showLogin(); };
+
+$("chatForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $("msg").value.trim(); if (!text) return;
+  $("msg").value = ""; $("chatErr").textContent = ""; $("send").disabled = true;
+  addMsg("user", text);
+  try {
+    const r = await api("/chat", { method: "POST", body: { message: text } });
+    addMsg("assistant", r.answer);
+    if (r.refresh) { loadTasks(); loadNotes(); }
+  } catch (err) { $("chatErr").textContent = err.message; }
+  $("send").disabled = false; $("msg").focus();
+};
+
+$("taskForm").onsubmit = async (e) => {
+  e.preventDefault();
+  try { await api("/tasks", { method: "POST", body: { text: $("taskText").value, due_date: $("taskDue").value || null } }); }
+  catch (err) { $("chatErr").textContent = err.message; return; }
+  $("taskText").value = ""; $("taskDue").value = ""; loadTasks();
+};
+$("noteForm").onsubmit = async (e) => {
+  e.preventDefault();
+  try { await api("/notes", { method: "POST", body: { title: $("noteTitle").value, body: $("noteBody").value } }); }
+  catch (err) { $("chatErr").textContent = err.message; return; }
+  $("noteTitle").value = ""; $("noteBody").value = ""; loadNotes();
+};
+
+api("/me").then(showApp).catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "howardjarvis",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "wrangler dev -c wrangler.jsonc",
+    "deploy": "wrangler deploy -c wrangler.jsonc",
+    "migrate": "wrangler d1 migrations apply howardjarvis --remote -c wrangler.jsonc",
+    "migrate:local": "wrangler d1 migrations apply howardjarvis --local -c wrangler.jsonc",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.1"
+  }
+}
