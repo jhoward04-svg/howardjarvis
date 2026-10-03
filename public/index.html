@@ -4,80 +4,134 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Jarvis</title>
+<title>J.A.R.V.I.S.</title>
 <style>
-  :root { --bg:#0d0e18; --panel:#161829; --line:#262a44; --text:#e8eaf6; --dim:#8b90b0; --accent:#5b8cff; --danger:#ff6b6b; }
-  @media (prefers-color-scheme: light) { :root { --bg:#f4f5fb; --panel:#fff; --line:#dcdff0; --text:#161829; --dim:#667; } }
+  :root { --bg:#04070d; --panel:rgba(8,18,32,.78); --line:rgba(58,200,255,.28); --text:#d6f3ff; --dim:#6fa3bd;
+          --accent:#3ac8ff; --accent-2:#ffc34d; --danger:#ff5d73; --glow:0 0 18px rgba(58,200,255,.18); }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui,sans-serif; min-height:100vh; }
+  body { margin:0; color:var(--text); min-height:100vh;
+    font:16px/1.45 Bahnschrift,"Segoe UI",system-ui,sans-serif; letter-spacing:.02em;
+    background:
+      radial-gradient(1100px 600px at 50% -10%, rgba(58,200,255,.14), transparent 60%),
+      linear-gradient(rgba(58,200,255,.045) 1px, transparent 1px) 0 0/44px 44px,
+      linear-gradient(90deg, rgba(58,200,255,.045) 1px, transparent 1px) 0 0/44px 44px,
+      var(--bg); }
   [hidden] { display:none !important; }
-  button, input, textarea { font:inherit; color:inherit; }
-  input, textarea { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; width:100%; }
-  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 16px; cursor:pointer; }
-  button.ghost { background:transparent; color:var(--dim); border:1px solid var(--line); }
-  #login { max-width:340px; margin:20vh auto; padding:0 16px; display:grid; gap:12px; }
-  header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); }
-  header h1 { margin:0; font-size:1.1rem; }
-  main { display:grid; grid-template-columns:1fr 340px; gap:16px; padding:16px; max-width:1100px; margin:0 auto; height:calc(100vh - 58px); }
-  @media (max-width:800px) { main { grid-template-columns:1fr; height:auto; } #chatbox { height:70vh; } }
-  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; display:flex; flex-direction:column; min-height:0; }
-  h2 { margin:0 0 10px; font-size:.8rem; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); }
+  button, input, textarea { font:inherit; color:inherit; letter-spacing:inherit; }
+  input, textarea { background:rgba(2,10,20,.85); border:1px solid var(--line); border-radius:4px; padding:10px 12px; width:100%; outline:none; }
+  input:focus, textarea:focus { border-color:var(--accent); box-shadow:var(--glow); }
+  ::placeholder { color:#4b7388; }
+  button { background:linear-gradient(180deg, rgba(58,200,255,.28), rgba(58,200,255,.12)); color:var(--text);
+    border:1px solid var(--accent); border-radius:4px; padding:10px 16px; cursor:pointer;
+    text-transform:uppercase; font-size:.8rem; letter-spacing:.14em; }
+  button:hover { box-shadow:var(--glow); background:rgba(58,200,255,.35); }
+  button:disabled { opacity:.5; cursor:wait; }
+  button.ghost { background:transparent; color:var(--dim); border-color:var(--line); }
+  button.ghost:hover { color:var(--text); }
+
+  /* login */
+  #login { max-width:340px; margin:7vh auto 0; padding:0 16px; display:grid; gap:12px; text-align:center; }
+  #login img { width:200px; height:200px; margin:0 auto; filter:drop-shadow(0 0 22px var(--accent)); animation:breathe 4s ease-in-out infinite; }
+  #login h1 { margin:0; font-size:1.5rem; letter-spacing:.45em; text-indent:.45em; text-shadow:0 0 14px var(--accent); }
+  #login p { margin:0 0 4px; color:var(--dim); font-size:.8rem; letter-spacing:.18em; text-transform:uppercase; }
+  @keyframes breathe { 50% { filter:drop-shadow(0 0 36px var(--accent)) brightness(1.25); } }
+
+  header { display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border-bottom:1px solid var(--line);
+    background:rgba(4,10,20,.7); backdrop-filter:blur(6px); }
+  header h1 { margin:0; font-size:1.05rem; letter-spacing:.4em; text-shadow:0 0 12px var(--accent); }
+  header small { color:var(--dim); letter-spacing:.2em; font-size:.65rem; text-transform:uppercase; margin-left:14px; }
+  main { display:grid; grid-template-columns:1fr 350px; gap:16px; padding:16px; max-width:1150px; margin:0 auto; height:calc(100vh - 58px); }
+  @media (max-width:800px) { main { grid-template-columns:1fr; height:auto; } #chatbox { height:75vh; } header small { display:none; } }
+  section { background:var(--panel); border:1px solid var(--line); box-shadow:var(--glow), inset 0 0 40px rgba(58,200,255,.04);
+    border-radius:4px; padding:14px; display:flex; flex-direction:column; min-height:0; position:relative; }
+  section::before, section::after { content:""; position:absolute; width:14px; height:14px; border:2px solid var(--accent); pointer-events:none; }
+  section::before { top:-1px; left:-1px; border-right:0; border-bottom:0; }
+  section::after { bottom:-1px; right:-1px; border-left:0; border-top:0; }
+  h2 { margin:0 0 10px; font-size:.72rem; letter-spacing:.3em; text-transform:uppercase; color:var(--accent); }
   #log { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-bottom:8px; }
-  .msg { max-width:85%; padding:8px 12px; border-radius:12px; white-space:pre-wrap; word-wrap:break-word; }
-  .msg.user { align-self:flex-end; background:var(--accent); color:#fff; }
-  .msg.assistant { align-self:flex-start; background:var(--bg); border:1px solid var(--line); }
+  .msg { max-width:85%; padding:8px 12px; border-radius:4px; white-space:pre-wrap; word-wrap:break-word; }
+  .msg.user { align-self:flex-end; background:rgba(58,200,255,.18); border:1px solid var(--accent); }
+  .msg.assistant { align-self:flex-start; background:rgba(2,10,20,.85); border:1px solid var(--line); border-left:3px solid var(--accent-2); }
   form.row { display:flex; gap:8px; }
   #side { display:flex; flex-direction:column; gap:16px; overflow-y:auto; }
   ul { list-style:none; margin:0 0 10px; padding:0; display:grid; gap:6px; }
   li { display:flex; gap:8px; align-items:flex-start; }
   li.done span { text-decoration:line-through; color:var(--dim); }
   li small { color:var(--dim); display:block; }
-  li .x { margin-left:auto; background:none; color:var(--dim); padding:0 6px; }
+  li .x { margin-left:auto; background:none; border:0; color:var(--dim); padding:0 6px; }
+  li input[type=checkbox] { accent-color:var(--accent); }
   .err { color:var(--danger); min-height:1.2em; }
   #mic.listening { background:var(--danger); border-color:var(--danger); color:#fff; animation:pulse 1.2s infinite; }
   @keyframes pulse { 50% { opacity:.6; } }
+
+  /* Orb: --level (0..1) is set every frame from JS (mic volume / speech / idle breathing). */
+  #orbWrap { display:flex; flex-direction:column; align-items:center; gap:4px; padding:4px 0 10px; }
+  #orb { --level:0; --tint:#3ac8ff; position:relative; width:190px; height:190px; display:grid; place-items:center; }
+  #orb::after { content:""; position:absolute; inset:6%; border-radius:50%; z-index:0;
+    background:radial-gradient(circle, rgba(58,200,255,calc(.16 + var(--level) * .3)) 0%, rgba(58,200,255,.04) 60%, transparent 72%); }
+  #orb img { position:relative; z-index:1; width:100%; height:100%; user-select:none; pointer-events:none;
+    transform:scale(calc(1 + var(--level) * .08));
+    filter:brightness(calc(1.05 + var(--level) * .5)) drop-shadow(0 0 calc(8px + var(--level) * 34px) var(--tint)); }
+  #orb::before { content:""; position:absolute; inset:-8px; border-radius:50%; border:2px dashed var(--tint); z-index:1;
+    opacity:calc(.25 + var(--level) * .6); animation:spin 14s linear infinite; }
+  #orb[data-state="thinking"]::before { animation-duration:2.2s; opacity:.85; }
+  #orb[data-state="listening"] { --tint:#ff5d73; }
+  #orb[data-state="speaking"] { --tint:#ffc34d; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #orbState { font-size:.68rem; letter-spacing:.35em; text-transform:uppercase; color:var(--accent); text-indent:.35em; }
+  #speak { padding:4px 10px; font-size:.68rem; }
+  @media (prefers-reduced-motion: reduce) { #orb::before, #login img { animation:none; } #orb img { transform:none; } }
+  @media (max-width:800px) { #orb { width:130px; height:130px; } }
 </style>
 </head>
 <body>
 <div id="login" hidden>
-  <h1>Jarvis</h1>
+  <img src="/jarvis-orb.png" alt="" width="200" height="200" draggable="false">
+  <h1>J.A.R.V.I.S.</h1>
+  <p>Identify yourself, Sir</p>
   <form id="loginForm" style="display:grid;gap:12px">
-    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" required>
-    <button>Unlock</button>
+    <input id="pw" type="password" placeholder="Passcode" autocomplete="current-password" required>
+    <button>Authenticate</button>
   </form>
   <div class="err" id="loginErr"></div>
 </div>
 
 <div id="app" hidden>
-  <header><h1>Jarvis</h1><button class="ghost" id="logout">Lock</button></header>
+  <header><div><h1 style="display:inline">J.A.R.V.I.S.</h1><small>Just A Rather Very Intelligent System</small></div><button class="ghost" id="logout">Lock</button></header>
   <main>
     <section id="chatbox">
-      <h2>Chat</h2>
+      <div id="orbWrap">
+        <div id="orb" data-state="idle" role="img" aria-label="Jarvis status: idle">
+          <img src="/jarvis-orb.png" alt="" width="180" height="180" draggable="false">
+        </div>
+        <div id="orbState">idle</div>
+        <button type="button" id="speak" class="ghost" aria-pressed="false" title="Read replies aloud">🔇 Voice: off</button>
+      </div>
       <div id="log"></div>
       <div class="err" id="chatErr"></div>
       <form class="row" id="chatForm">
-        <input id="msg" placeholder="Ask Jarvis, or say “remind me to call Mom Friday”" autocomplete="off" required>
-        <button type="button" id="mic" class="ghost" title="Speak" aria-label="Speak" aria-pressed="false" hidden>🎤</button>
+        <input id="msg" placeholder="Your instructions, Sir… e.g. “remind me to call Mom Friday”" autocomplete="off" required>
+        <button type="button" id="mic" class="ghost" title="Speak to JARVIS" aria-label="Speak" aria-pressed="false" hidden>🎤</button>
         <button id="send">Send</button>
       </form>
     </section>
     <div id="side">
       <section>
-        <h2>Tasks</h2>
+        <h2>Task Queue</h2>
         <ul id="tasks"></ul>
         <form class="row" id="taskForm">
-          <input id="taskText" placeholder="New task" required>
+          <input id="taskText" placeholder="New directive" required>
           <input id="taskDue" type="date" style="width:auto">
           <button>+</button>
         </form>
       </section>
       <section>
-        <h2>Notes</h2>
+        <h2>Memory Bank</h2>
         <ul id="notes"></ul>
         <form id="noteForm" style="display:grid;gap:6px">
           <input id="noteTitle" placeholder="Title" required>
           <textarea id="noteBody" rows="2" placeholder="Body (optional)"></textarea>
-          <button>Save note</button>
+          <button>Store</button>
         </form>
       </section>
     </div>
@@ -117,7 +171,7 @@ function addMsg(role, text) {
 async function loadTasks() {
   const { tasks } = await api("/tasks");
   const ul = $("tasks"); ul.replaceChildren();
-  if (!tasks.length) ul.append(el("li", { textContent: "Nothing open." }));
+  if (!tasks.length) ul.append(el("li", { textContent: "Nothing outstanding, Sir." }));
   for (const t of tasks) {
     const cb = el("input", { type: "checkbox", checked: !!t.done_at, style: "width:auto;margin-top:4px" });
     cb.onchange = async () => { await api("/tasks/" + t.id, { method: "PATCH", body: { done: cb.checked } }); loadTasks(); };
@@ -132,7 +186,7 @@ async function loadTasks() {
 async function loadNotes() {
   const { notes } = await api("/notes");
   const ul = $("notes"); ul.replaceChildren();
-  if (!notes.length) ul.append(el("li", { textContent: "No notes yet." }));
+  if (!notes.length) ul.append(el("li", { textContent: "Nothing stored." }));
   for (const n of notes) {
     const label = el("span", { textContent: n.title });
     if (n.body) label.append(el("small", { textContent: n.body }));
@@ -145,7 +199,7 @@ async function loadNotes() {
 async function loadAll() {
   const { messages } = await api("/messages");
   $("log").replaceChildren();
-  if (!messages.length) addMsg("assistant", "Hi Howard — what do you need?");
+  if (!messages.length) addMsg("assistant", "Good day, Sir. How may I be of service?");
   messages.forEach((m) => addMsg(m.role, m.content));
   loadTasks(); loadNotes();
 }
@@ -162,11 +216,14 @@ $("chatForm").onsubmit = async (e) => {
   const text = $("msg").value.trim(); if (!text) return;
   $("msg").value = ""; $("chatErr").textContent = ""; $("send").disabled = true;
   addMsg("user", text);
+  const viaVoice = voice.dictated; voice.dictated = false;
+  orb.set("thinking");
   try {
     const r = await api("/chat", { method: "POST", body: { message: text } });
     addMsg("assistant", r.answer);
     if (r.refresh) { loadTasks(); loadNotes(); }
-  } catch (err) { $("chatErr").textContent = err.message; }
+    if (voice.speakAlways || viaVoice) voice.say(r.answer); else orb.set("idle");
+  } catch (err) { $("chatErr").textContent = err.message; orb.set("idle"); }
   $("send").disabled = false; $("msg").focus();
 };
 
@@ -183,10 +240,60 @@ $("noteForm").onsubmit = async (e) => {
   $("noteTitle").value = ""; $("noteBody").value = ""; loadNotes();
 };
 
-// Voice input: the browser's built-in speech recognition (Chrome/Edge/Safari).
-// It fills the chat box; the user reviews and presses Send, so a misheard
-// phrase never becomes a task on its own. Hidden where unsupported (Firefox).
-(function setupVoice() {
+// ---- Orb: one animation loop. --level (0..1) drives scale/glow/ring in CSS. ----
+// idle = slow breathing, thinking = fast pulse + spinning ring, listening = live
+// microphone volume, speaking = pulses with the words as they are spoken.
+const orb = (() => {
+  const el = $("orb"), label = $("orbState");
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let state = "idle", level = 0, kick = 0, micLevel = 0;
+  function set(s) {
+    state = s; el.dataset.state = s; label.textContent = s;
+    el.setAttribute("aria-label", "Jarvis status: " + s);
+  }
+  function frame(t) {
+    let target = 0.08 + 0.08 * Math.sin(t / 900);
+    if (state === "thinking") target = 0.4 + 0.3 * Math.sin(t / 200);
+    else if (state === "listening") target = Math.max(micLevel, 0.15);
+    else if (state === "speaking") target = 0.3 + 0.2 * Math.sin(t / 120) + kick;
+    kick *= 0.9;
+    level += (Math.min(target, 1) - level) * 0.25;
+    el.style.setProperty("--level", (calm ? level * 0.3 : level).toFixed(3));
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  return { set, get state() { return state; }, kick: (k) => { kick = k; }, mic: (v) => { micLevel = v; } };
+})();
+
+// ---- Voice: speech in (SpeechRecognition) and, optionally, speech out (speechSynthesis). ----
+// Dictation fills the chat box; the user reviews and presses Send, so a misheard
+// phrase never becomes a task on its own. A reply is read aloud when the message
+// was dictated, or always if the speaker toggle is on.
+const voice = { dictated: false, speakAlways: false, say() { orb.set("idle"); } };
+
+(function setupVoiceOut() {
+  const synth = window.speechSynthesis;
+  const btn = $("speak");
+  if (!synth) { btn.hidden = true; return; }
+  try { voice.speakAlways = localStorage.getItem("hj_speak") === "1"; } catch {}
+  const paint = () => { btn.textContent = voice.speakAlways ? "🔊 Voice: on" : "🔇 Voice: off"; btn.setAttribute("aria-pressed", String(voice.speakAlways)); };
+  paint();
+  btn.onclick = () => {
+    voice.speakAlways = !voice.speakAlways; paint();
+    try { localStorage.setItem("hj_speak", voice.speakAlways ? "1" : "0"); } catch {}
+    if (!voice.speakAlways) { synth.cancel(); orb.set("idle"); }
+  };
+  voice.say = (text) => {
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.onstart = () => orb.set("speaking");
+    u.onboundary = () => orb.kick(0.35);
+    u.onend = u.onerror = () => orb.set("idle");
+    synth.speak(u);
+  };
+})();
+
+(function setupVoiceIn() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const mic = $("mic");
   if (!SR) return;
@@ -195,12 +302,42 @@ $("noteForm").onsubmit = async (e) => {
   rec.lang = navigator.language || "en-US";
   rec.interimResults = true;
   rec.continuous = false;
-  let base = "", listening = false;
-  const setListening = (on) => { listening = on; mic.classList.toggle("listening", on); mic.setAttribute("aria-pressed", String(on)); };
+  let base = "", listening = false, stream = null, ctx = null;
+
+  // Live volume for the orb. Best effort: if a second mic stream is refused the
+  // orb still pulses on a gentle fallback while listening.
+  async function startMeter() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
+      an.fftSize = 256; src.connect(an);
+      const buf = new Uint8Array(an.fftSize);
+      (function tick() {
+        if (!listening || !ctx) { orb.mic(0); return; }
+        an.getByteTimeDomainData(buf);
+        let sum = 0; for (const v of buf) sum += ((v - 128) / 128) ** 2;
+        orb.mic(Math.min(1, Math.sqrt(sum / buf.length) * 5));
+        requestAnimationFrame(tick);
+      })();
+    } catch { /* meter unavailable; recognition still works */ }
+  }
+  function stopMeter() {
+    orb.mic(0);
+    stream?.getTracks().forEach((t) => t.stop()); stream = null;
+    ctx?.close().catch(() => {}); ctx = null;
+  }
+
+  const setListening = (on) => {
+    listening = on; mic.classList.toggle("listening", on); mic.setAttribute("aria-pressed", String(on));
+    if (on) { window.speechSynthesis?.cancel(); orb.set("listening"); startMeter(); }
+    else { stopMeter(); if (orb.state === "listening") orb.set("idle"); }
+  };
   rec.onresult = (e) => {
     let text = "";
     for (const r of e.results) text += r[0].transcript;
     $("msg").value = (base ? base + " " : "") + text.trim();
+    voice.dictated = true;
   };
   rec.onend = () => { setListening(false); $("msg").focus(); };
   rec.onerror = (e) => {
