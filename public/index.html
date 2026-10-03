@@ -79,7 +79,10 @@
   #orb[data-state="speaking"] { --tint:#ffc34d; }
   @keyframes spin { to { transform:rotate(360deg); } }
   #orbState { font-size:.68rem; letter-spacing:.35em; text-transform:uppercase; color:var(--accent); text-indent:.35em; }
-  #speak { padding:4px 10px; font-size:.68rem; }
+  #orbBtns { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  #speak, #convo { padding:4px 10px; font-size:.68rem; }
+  #convo[aria-pressed="true"] { color:#fff; background:rgba(255,93,115,.3); border-color:var(--danger); animation:pulse 1.6s infinite; }
+  #mic:disabled { opacity:.35; cursor:not-allowed; }
   @media (prefers-reduced-motion: reduce) { #orb::before, #login img { animation:none; } #orb img { transform:none; } }
   @media (max-width:800px) { #orb { width:min(70vw, 260px); height:min(70vw, 260px); } }
 </style>
@@ -105,7 +108,10 @@
           <img src="/jarvis-orb.png" alt="" width="180" height="180" draggable="false">
         </div>
         <div id="orbState">idle</div>
-        <button type="button" id="speak" class="ghost" aria-pressed="false" title="Read replies aloud">🔇 Voice: off</button>
+        <div id="orbBtns">
+          <button type="button" id="convo" class="ghost" aria-pressed="false" title="Keep the microphone on and talk freely" hidden>🎙 Conversation: off</button>
+          <button type="button" id="speak" class="ghost" aria-pressed="false" title="Read replies aloud">🔇 Voice: off</button>
+        </div>
       </div>
       <div id="log"></div>
       <div class="err" id="chatErr"></div>
@@ -218,12 +224,15 @@ $("chatForm").onsubmit = async (e) => {
   addMsg("user", text);
   const viaVoice = voice.dictated; voice.dictated = false;
   orb.set("thinking");
+  let speaking = false;
   try {
     const r = await api("/chat", { method: "POST", body: { message: text } });
     addMsg("assistant", r.answer);
     if (r.refresh) { loadTasks(); loadNotes(); }
-    if (voice.speakAlways || viaVoice) voice.say(r.answer); else orb.set("idle");
+    if (voice.speakAlways || viaVoice) { speaking = true; voice.say(r.answer, () => voice.resume()); }
+    else orb.set("idle");
   } catch (err) { $("chatErr").textContent = err.message; orb.set("idle"); }
+  if (!speaking) voice.resume();
   $("send").disabled = false; $("msg").focus();
 };
 
@@ -265,11 +274,13 @@ const orb = (() => {
   return { set, get state() { return state; }, kick: (k) => { kick = k; }, mic: (v) => { micLevel = v; } };
 })();
 
-// ---- Voice: speech in (SpeechRecognition) and, optionally, speech out (speechSynthesis). ----
-// Dictation fills the chat box; the user reviews and presses Send, so a misheard
-// phrase never becomes a task on its own. A reply is read aloud when the message
-// was dictated, or always if the speaker toggle is on.
-const voice = { dictated: false, speakAlways: false, say() { orb.set("idle"); } };
+// ---- Voice: speech in (SpeechRecognition) and out (speechSynthesis). ----
+// Push-to-talk (🎤) fills the chat box for review. Conversation mode keeps the
+// microphone on: each sentence is sent when you pause, the reply is spoken, and
+// listening resumes afterwards. The mic is paused while Jarvis speaks so he
+// doesn't hear himself. Replies are read aloud when the message was dictated,
+// or always if the Voice toggle is on.
+const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idle"); done && done(); }, resume() {} };
 
 (function setupVoiceOut() {
   const synth = window.speechSynthesis;
@@ -283,30 +294,32 @@ const voice = { dictated: false, speakAlways: false, say() { orb.set("idle"); } 
     try { localStorage.setItem("hj_speak", voice.speakAlways ? "1" : "0"); } catch {}
     if (!voice.speakAlways) { synth.cancel(); orb.set("idle"); }
   };
-  voice.say = (text) => {
+  voice.say = (text, done) => {
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.onstart = () => orb.set("speaking");
     u.onboundary = () => orb.kick(0.35);
-    u.onend = u.onerror = () => orb.set("idle");
+    u.onend = u.onerror = () => { orb.set("idle"); done && done(); };
     synth.speak(u);
   };
 })();
 
 (function setupVoiceIn() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const mic = $("mic");
+  const mic = $("mic"), convoBtn = $("convo");
   if (!SR) return;
-  mic.hidden = false;
+  mic.hidden = false; convoBtn.hidden = false;
+  const IDLE_LIMIT_MS = 10 * 60 * 1000;   // conversation mode switches itself off after 10 quiet minutes
   const rec = new SR();
   rec.lang = navigator.language || "en-US";
   rec.interimResults = true;
-  rec.continuous = false;
-  let base = "", listening = false, stream = null, ctx = null;
+  let base = "", listening = false, convo = false, paused = false;
+  let stream = null, ctx = null, lastHeard = 0, idleTimer = null, restartTimer = null;
 
-  // Live volume for the orb. Best effort: if a second mic stream is refused the
-  // orb still pulses on a gentle fallback while listening.
+  // Live volume for the orb. Best effort: if the meter can't open, the orb still
+  // pulses on a gentle fallback while listening.
   async function startMeter() {
+    if (stream) return;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -314,13 +327,13 @@ const voice = { dictated: false, speakAlways: false, say() { orb.set("idle"); } 
       an.fftSize = 256; src.connect(an);
       const buf = new Uint8Array(an.fftSize);
       (function tick() {
-        if (!listening || !ctx) { orb.mic(0); return; }
+        if (!stream) { orb.mic(0); return; }
         an.getByteTimeDomainData(buf);
         let sum = 0; for (const v of buf) sum += ((v - 128) / 128) ** 2;
-        orb.mic(Math.min(1, Math.sqrt(sum / buf.length) * 5));
+        orb.mic(listening ? Math.min(1, Math.sqrt(sum / buf.length) * 5) : 0);
         requestAnimationFrame(tick);
       })();
-    } catch { /* meter unavailable; recognition still works */ }
+    } catch { stream = null; }
   }
   function stopMeter() {
     orb.mic(0);
@@ -328,28 +341,79 @@ const voice = { dictated: false, speakAlways: false, say() { orb.set("idle"); } 
     ctx?.close().catch(() => {}); ctx = null;
   }
 
-  const setListening = (on) => {
+  function setListening(on) {
     listening = on; mic.classList.toggle("listening", on); mic.setAttribute("aria-pressed", String(on));
     if (on) { window.speechSynthesis?.cancel(); orb.set("listening"); startMeter(); }
-    else { stopMeter(); if (orb.state === "listening") orb.set("idle"); }
-  };
+    else { if (orb.state === "listening") orb.set("idle"); if (!convo) stopMeter(); }
+  }
+  function startListening(retry = true) {
+    if (listening) return;
+    rec.continuous = convo;
+    try { rec.start(); setListening(true); }
+    catch { if (retry && convo) { clearTimeout(restartTimer); restartTimer = setTimeout(() => startListening(false), 400); } }
+  }
+
+  function startConvo() {
+    convo = true; paused = false; lastHeard = Date.now();
+    convoBtn.textContent = "🎙 Conversation: on"; convoBtn.setAttribute("aria-pressed", "true");
+    mic.disabled = true; $("chatErr").textContent = "";
+    idleTimer = setInterval(() => { if (Date.now() - lastHeard > IDLE_LIMIT_MS) stopConvo("Conversation mode ended after 10 quiet minutes."); }, 30000);
+    startListening();
+  }
+  function stopConvo(note) {
+    convo = false; paused = false;
+    clearInterval(idleTimer); clearTimeout(restartTimer);
+    try { rec.abort(); } catch {}
+    window.speechSynthesis?.cancel();
+    if (orb.state !== "thinking") orb.set("idle");
+    stopMeter();
+    convoBtn.textContent = "🎙 Conversation: off"; convoBtn.setAttribute("aria-pressed", "false");
+    mic.disabled = false;
+    if (note) $("chatErr").textContent = note;
+  }
+  voice.resume = () => { if (convo) { paused = false; startListening(); } };
+
   rec.onresult = (e) => {
-    let text = "";
-    for (const r of e.results) text += r[0].transcript;
-    $("msg").value = (base ? base + " " : "") + text.trim();
-    voice.dictated = true;
+    lastHeard = Date.now();
+    if (!convo) {
+      let text = "";
+      for (const r of e.results) text += r[0].transcript;
+      $("msg").value = (base ? base + " " : "") + text.trim();
+      voice.dictated = true;
+      return;
+    }
+    let interim = "", final = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
+    }
+    $("msg").value = (final || interim).trim();
+    if (final.trim().length > 1 && !$("send").disabled) {
+      paused = true;                    // hold the mic while Jarvis thinks and speaks
+      try { rec.stop(); } catch {}
+      voice.dictated = true;
+      $("chatForm").requestSubmit();
+    }
   };
-  rec.onend = () => { setListening(false); $("msg").focus(); };
+  rec.onend = () => {
+    setListening(false);
+    if (convo && !paused) { clearTimeout(restartTimer); restartTimer = setTimeout(startListening, 250); }   // Chrome ends sessions on its own
+    else if (!convo) $("msg").focus();
+  };
   rec.onerror = (e) => {
+    if (convo && (e.error === "no-speech" || e.error === "aborted")) return;   // onend restarts
     const why = { "not-allowed": "microphone access was blocked — allow it in the browser's address bar", "service-not-allowed": "microphone access was blocked", "no-speech": "didn't hear anything", "audio-capture": "no microphone found", "network": "speech service unreachable" };
-    $("chatErr").textContent = "Voice: " + (why[e.error] || e.error);
+    const msg = "Voice: " + (why[e.error] || e.error);
+    if (convo) stopConvo(msg + ". Conversation mode switched off."); else $("chatErr").textContent = msg;
   };
   mic.onclick = () => {
+    if (convo) return;
     if (listening) { rec.stop(); return; }
     $("chatErr").textContent = "";
     base = $("msg").value.trim();
-    try { rec.start(); setListening(true); } catch { /* already started */ }
+    startListening();
   };
+  convoBtn.onclick = () => (convo ? stopConvo() : startConvo());
 })();
 
 api("/me").then(showApp).catch(() => {});
