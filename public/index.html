@@ -197,6 +197,15 @@
     #bottombar { padding:8px; }
   }
 
+  .set { display:grid; gap:10px; font-size:.9rem; }
+  .srow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .srow input[type=checkbox] { width:auto; accent-color:var(--accent); }
+  .srow input[type=time] { width:auto; }
+  select { background:rgba(2,10,20,.85); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-width:100%; font:inherit; }
+  .hint { color:var(--dim); font-size:.78rem; line-height:1.35; }
+  body[data-view="home"] .panel[data-in="settings"] { display:none; }
+  body[data-view="settings"] .panel:not([data-in~="settings"]) { display:none; }
+
   /* ---------- installed-app polish ---------- */
   #bottombar { padding-bottom:calc(10px + env(safe-area-inset-bottom)); padding-left:calc(16px + env(safe-area-inset-left)); padding-right:calc(16px + env(safe-area-inset-right)); }
   #topbar { padding-top:calc(10px + env(safe-area-inset-top)); }
@@ -271,6 +280,7 @@
       <button class="nav" data-view="tasks">✅ Tasks <span class="badge" id="bTasks">0</span></button>
       <button class="nav" data-view="memory">🧠 Memory <span class="badge" id="bMem">0</span></button>
       <button class="nav" data-view="chat">💬 Conversations <span class="badge" id="bTurns">0</span></button>
+      <button class="nav" data-view="settings">⚙️ Settings</button>
     </nav>
     <div id="voiceBox">
       <h3>VOICE STATUS</h3>
@@ -352,6 +362,29 @@
       </div>
     </section>
 
+    <section class="panel" id="p-settings" data-in="settings"><h2>Briefings &amp; Reminders</h2>
+      <div class="set">
+        <label class="srow"><input type="checkbox" id="setBrief"> <span>Morning briefing at</span> <input type="time" id="setBriefTime"></label>
+        <label class="srow"><input type="checkbox" id="setRem"> <span>Reminder for tasks due today at</span> <input type="time" id="setRemTime"></label>
+        <div class="hint">Times are in your time zone: <b id="setTz"></b>. The briefing summarises what is overdue, due today and coming up; the reminder only fires if something is still due.</div>
+        <div class="srow"><button type="button" id="setSave">Save</button><button type="button" class="ghost" id="briefNow">☀️ Brief me now</button><span id="setMsg" class="hint"></span></div>
+      </div>
+      <h2 style="margin-top:16px">Phone notifications <span id="pushStatus"></span></h2>
+      <div class="set">
+        <div class="hint">Briefings always appear in your conversation. Enable notifications to be told on this device when one arrives.</div>
+        <div class="srow"><button type="button" id="pushOn">Enable on this device</button><button type="button" class="ghost" id="pushTest">Send a test</button><button type="button" class="ghost" id="pushOff">Turn off here</button></div>
+        <div class="hint" id="pushMsg"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="p-voice" data-in="settings"><h2>Voice</h2>
+      <div class="set">
+        <label class="srow"><span>Jarvis speaks with</span> <select id="voiceSel"></select></label>
+        <div class="srow"><button type="button" class="ghost" id="voicePreview">▶ Preview</button><span class="hint" id="voiceHint"></span></div>
+        <div class="hint">Lists every English voice your device offers. On iPhone/iPad/Mac, more British voices can be downloaded in Settings → Accessibility → Spoken Content → Voices → English (UK).</div>
+      </div>
+    </section>
+
     <section class="panel" id="p-memory" data-in="home memory"><h2>Memory Bank <span id="memCount"></span></h2>
       <div class="scroll"><ul id="notes"></ul></div>
       <form id="noteForm" style="display:grid;gap:6px">
@@ -405,16 +438,33 @@ function el(tag, props = {}, ...kids) {
   return n;
 }
 
-function showLogin() { $("app").hidden = true; $("login").hidden = false; $("pw").focus(); }
-function showApp() { $("login").hidden = true; $("app").hidden = false; loadAll(); }
+function showLogin() { if (voice.stop) voice.stop(); $("app").hidden = true; $("login").hidden = false; $("pw").focus(); }
+function showApp() { $("login").hidden = true; $("app").hidden = false; loadAll(); if (voice.autoStart) voice.autoStart(); }
 
-function addMsg(role, text, thumb) {
+// The conversation panel starts clean on every load: a greeting (plus today's briefing, if one
+// arrived). Earlier history is kept — it shows in the Conversations view, above this session.
+const GREETING = "Good day, Sir. How may I be of service?";
+const convoState = { history: [], session: [{ role: "assistant", text: GREETING }], shownNotice: "" };
+function domMsg(role, text, thumb) {
   const m = el("div", { className: "msg " + role });
   if (thumb) m.append(el("img", { src: thumb, alt: "Photo you sent" }));
   m.append(document.createTextNode(text));
-  $("log").append(m);
+  return m;
+}
+function renderLog() {
+  const full = document.body.dataset.view === "chat";
+  const items = [];
+  if (full) convoState.history.forEach((m) => items.push(domMsg(m.role, m.content)));
+  convoState.session.forEach((m) => { if (!(full && m.fromNotice)) items.push(domMsg(m.role, m.text, m.thumb)); });
+  $("log").replaceChildren(...items);
   $("log").scrollTop = $("log").scrollHeight;
 }
+function addMsg(role, text, thumb) {
+  convoState.session.push({ role, text, thumb });
+  $("log").append(domMsg(role, text, thumb));
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
 
 const state = { tasks: [], notes: [], turns: 0, chatOk: null, filter: "", orb: "idle" };
 const todayStr = () => new Date().toLocaleDateString("en-CA");               // local YYYY-MM-DD
@@ -427,12 +477,20 @@ async function loadNotes() { state.notes = (await api("/notes")).notes; renderDa
 
 async function loadAll() {
   const { messages } = await api("/messages");
-  $("log").replaceChildren();
-  if (!messages.length) addMsg("assistant", "Good day, Sir. How may I be of service?");
-  messages.forEach((m) => addMsg(m.role, m.content));
+  convoState.history = messages;
   state.turns = Math.floor(messages.length / 2);
+  try {                                                  // today's briefing / reminder goes in the clean log once
+    const n = await api("/notice");
+    const isToday = n.at && new Date(n.at).toLocaleDateString("en-CA") === todayStr();
+    if (isToday && n.text && (n.kind === "briefing" || n.kind === "reminder") && n.at !== convoState.shownNotice) {
+      convoState.shownNotice = n.at;
+      convoState.session.push({ role: "assistant", text: (n.kind === "briefing" ? "☀️ " : "⏰ ") + n.title + "\n\n" + n.text, fromNotice: true });
+    }
+  } catch {}
+  renderLog();
   loadTasks(); loadNotes();
 }
+
 
 // ---- Dashboard panels: everything below is drawn from real tasks, notes and conversation. ----
 function renderTasks() {
@@ -529,10 +587,94 @@ $("search").oninput = (e) => { state.filter = e.target.value.trim().toLowerCase(
 // sidebar views
 function setView(v) {
   document.body.dataset.view = v;
+  if (typeof renderLog === "function" && $("log")) renderLog();
+  if (v === "settings" && typeof loadSettings === "function") loadSettings();
   document.querySelectorAll(".nav").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
 }
 setView("home");
 document.querySelectorAll(".nav").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
+
+
+// ---- Settings: briefings, reminders, notifications, voice ----
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const cfg = { vapid: "" };
+const setMsg = (id, t, bad) => { const e = $(id); e.textContent = t; e.style.color = bad ? "var(--danger)" : "var(--dim)"; };
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const keyBytes = (b64) => Uint8Array.from(atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+
+async function refreshPushStatus() {
+  let t = "";
+  if (!pushSupported()) t = "not available here";
+  else if (Notification.permission === "denied") t = "blocked in browser settings";
+  else { const reg = await navigator.serviceWorker.getRegistration(); t = (await reg?.pushManager.getSubscription()) ? "on for this device" : "off"; }
+  $("pushStatus").textContent = t;
+  if (!pushSupported()) setMsg("pushMsg", /iphone|ipad|ipod/i.test(navigator.userAgent) ? "On iPhone, first install JARVIS (Share → Add to Home Screen) and open it from the home screen; requires iOS 16.4 or newer." : "This browser can't receive notifications.", true);
+}
+
+async function loadSettings() {
+  try {
+    const d = await api("/settings");
+    $("setBrief").checked = d.settings.briefing_enabled; $("setBriefTime").value = d.settings.briefing_time;
+    $("setRem").checked = d.settings.reminder_enabled; $("setRemTime").value = d.settings.reminder_time;
+    $("setTz").textContent = tz; cfg.vapid = d.vapidPublicKey;
+    if (d.settings.timezone !== tz) api("/settings", { method: "POST", body: { timezone: tz } }).catch(() => {});   // keep the schedule in the phone's own zone
+  } catch (e) { setMsg("setMsg", e.message, true); }
+  refreshPushStatus(); fillVoices();
+}
+
+$("setSave").onclick = async () => {
+  try {
+    await api("/settings", { method: "POST", body: { briefing_enabled: $("setBrief").checked, briefing_time: $("setBriefTime").value, reminder_enabled: $("setRem").checked, reminder_time: $("setRemTime").value, timezone: tz } });
+    setMsg("setMsg", "Saved, Sir.");
+  } catch (e) { setMsg("setMsg", e.message, true); }
+};
+$("briefNow").onclick = async () => {
+  $("briefNow").disabled = true; setMsg("setMsg", "Preparing your briefing…");
+  try { await api("/briefing/now", { method: "POST", body: {} }); await loadAll(); setView("chat"); }
+  catch (e) { setMsg("setMsg", e.message, true); }
+  $("briefNow").disabled = false;
+};
+$("pushOn").onclick = async () => {
+  try {
+    if (!pushSupported()) return refreshPushStatus();
+    if ((await Notification.requestPermission()) !== "granted") return setMsg("pushMsg", "Permission was not granted — allow notifications for this site in the browser settings.", true);
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(cfg.vapid) }));
+    await api("/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } });
+    setMsg("pushMsg", "Enabled. Use “Send a test” to check it."); refreshPushStatus();
+  } catch (e) { setMsg("pushMsg", "Couldn't enable notifications: " + e.message, true); }
+};
+$("pushTest").onclick = async () => {
+  try {
+    const r = await api("/push/test", { method: "POST", body: {} });
+    setMsg("pushMsg", r.push.sent ? "Sent — it should arrive within a few seconds." : "No device is subscribed yet — enable notifications first.", !r.push.sent);
+  } catch (e) { setMsg("pushMsg", e.message, true); }
+};
+$("pushOff").onclick = async () => {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration(); const sub = await reg?.pushManager.getSubscription();
+    if (sub) { await api("/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } }); await sub.unsubscribe(); }
+    setMsg("pushMsg", "Notifications turned off on this device."); refreshPushStatus();
+  } catch (e) { setMsg("pushMsg", e.message, true); }
+};
+
+function fillVoices() {
+  const sel = $("voiceSel");
+  if (!("speechSynthesis" in window)) { sel.replaceChildren(el("option", { textContent: "Not supported in this browser" })); sel.disabled = true; $("voicePreview").disabled = true; return; }
+  const list = voice.list ? voice.list() : [];
+  let saved = ""; try { saved = localStorage.getItem("hj_voice") || ""; } catch {}
+  sel.replaceChildren(el("option", { value: "", textContent: "Automatic (best British voice)" }),
+    ...list.map((v) => el("option", { value: v.name, textContent: `${v.name} (${v.lang})`, selected: v.name === saved })));
+  const cur = voice.pick && voice.pick();
+  $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
+}
+$("voiceSel").onchange = () => { try { localStorage.setItem("hj_voice", $("voiceSel").value); } catch {} fillVoices(); };
+$("voicePreview").onclick = () => voice.say("Good day, Sir. At your service.");
+if ("speechSynthesis" in window) { try { speechSynthesis.addEventListener?.("voiceschanged", fillVoices); } catch {} }
+
+// scheduled briefings land in the conversation while the app is closed: refresh when it comes back
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("app").hidden && document.body.dataset.view !== "settings") loadAll(); });
+navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "refresh" && !$("app").hidden) loadAll(); });
 
 // press "/" anywhere to talk to Jarvis
 addEventListener("keydown", (e) => {
@@ -572,8 +714,8 @@ $("chatForm").onsubmit = async (e) => {
     addMsg("assistant", r.answer);
     state.chatOk = true; state.turns += 1; renderDash();
     if (r.refresh) { loadTasks(); loadNotes(); }
-    if (voice.speakAlways || viaVoice) { speaking = true; voice.say(r.answer, () => voice.resume()); }
-    else orb.set("idle");
+    if (voice.speakAlways || viaVoice) { try { voice.say(r.answer, () => voice.resume()); speaking = true; } catch (e2) { console.error("speech failed", e2); orb.set("idle"); } }
+    if (!speaking) orb.set("idle");
   } catch (err) { $("chatErr").textContent = err.message; state.chatOk = false; renderDash(); orb.set("idle"); }
   if (!speaking) voice.resume();
   $("send").disabled = false; $("msg").focus();
@@ -661,7 +803,7 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
   const synth = window.speechSynthesis;
   const btn = $("speak");
   if (!synth) { btn.hidden = true; return; }
-  try { voice.speakAlways = localStorage.getItem("hj_speak") === "1"; } catch {}
+  try { voice.speakAlways = localStorage.getItem("hj_speak") !== "0"; } catch {}
   const paint = () => { btn.textContent = voice.speakAlways ? "🔊 Voice: on" : "🔇 Voice: off"; btn.setAttribute("aria-pressed", String(voice.speakAlways)); };
   paint();
   btn.onclick = () => {
@@ -669,12 +811,32 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
     try { localStorage.setItem("hj_speak", voice.speakAlways ? "1" : "0"); } catch {}
     if (!voice.speakAlways) { synth.cancel(); orb.set("idle"); }
   };
+  // Voice choice: the user's saved pick, else the best British voice the device has.
+  // On Apple devices that means a voice called "… Voice 2" if present, then Daniel/Arthur/Oliver.
+  const norm = (l) => (l || "").replace("_", "-").toLowerCase();
+  const voicesNow = () => { try { return synth.getVoices?.() || []; } catch { return []; } };
+  const english = () => voicesNow().filter((v) => norm(v.lang).startsWith("en"));
+  voice.pick = () => {
+    const vs = voicesNow();
+    let saved = null; try { saved = localStorage.getItem("hj_voice"); } catch {}
+    const exact = saved && vs.find((v) => v.name === saved);
+    if (exact) return exact;
+    const gb = vs.filter((v) => norm(v.lang) === "en-gb");
+    return gb.find((v) => /voice\s*2\b/i.test(v.name)) || gb.find((v) => /\b(arthur|daniel|oliver)\b/i.test(v.name)) || gb[0] || null;
+  };
+  voice.list = () => english().sort((a, b) => (norm(b.lang) === "en-gb") - (norm(a.lang) === "en-gb") || a.name.localeCompare(b.name));
   voice.say = (text, done) => {
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
+    const v = voice.pick(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-GB";
+    // Some browsers never fire "end" (long text, tab in background). Never let that strand the
+    // microphone: a timeout finishes the turn so listening always resumes.
+    let finished = false;
+    const finish = () => { if (finished) return; finished = true; clearTimeout(guard); orb.set("idle"); done && done(); };
+    const guard = setTimeout(() => { try { synth.cancel(); } catch {} finish(); }, Math.max(8000, text.length * 110));
     u.onstart = () => orb.set("speaking");
     u.onboundary = () => orb.kick(0.35);
-    u.onend = u.onerror = () => { orb.set("idle"); done && done(); };
+    u.onend = u.onerror = finish;
     synth.speak(u);
   };
 })();
@@ -825,7 +987,24 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
     base = $("msg").value.trim();
     startListening();
   };
-  convoBtn.onclick = () => (convo ? stopConvo() : startConvo());
+  const remember = (on) => { try { localStorage.setItem("hj_convo", on ? "1" : "0"); } catch {} };
+  convoBtn.onclick = () => { if (convo) { remember(false); stopConvo(); } else { remember(true); startConvo(); } };
+
+  // Mic on by default. Browsers want a user gesture before they speak aloud, so the first tap or
+  // key press anywhere also unlocks the voice (and starts listening if the browser held it back).
+  let armed = false;
+  voice.stop = () => { if (convo) stopConvo(); armed = false; };      // locking the app must never leave the mic open
+  voice.autoStart = () => {
+    if (armed) return; armed = true;
+    let wanted = true; try { wanted = localStorage.getItem("hj_convo") !== "0"; } catch {}
+    const unlock = () => {
+      try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; window.speechSynthesis?.speak(u); } catch {}
+      if (wanted && !convo) { startConvo(); $("chatErr").textContent = ""; }
+    };
+    if (wanted) { startConvo(); setTimeout(() => { if (!listening && !convo) $("chatErr").textContent = "Tap anywhere to start listening."; }, 1200); }
+    const once = () => { removeEventListener("pointerdown", once, true); removeEventListener("keydown", once, true); unlock(); };
+    addEventListener("pointerdown", once, true); addEventListener("keydown", once, true);
+  };
 })();
 
 api("/me").then(showApp).catch((e) => {

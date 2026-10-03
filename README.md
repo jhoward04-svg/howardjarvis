@@ -42,3 +42,25 @@ turn. Photos are **not** stored — the history keeps only a "📷 [photo]" text
 button in the top bar (or menu ⋮ → Install app). iPhone/Safari: Share → Add to Home Screen.
 The service worker caches only the app shell; `/api/*` is never cached, and the page itself is
 network-first so deploys show up immediately.
+
+## Briefings, reminders and notifications
+
+`src/notify.js`, driven by a cron trigger (`*/10 * * * *` in `wrangler.jsonc`). In the owner's time
+zone it sends, at most once a day each: a **morning briefing** (overdue / due today / coming up,
+written by Claude with a plain-text fallback) and a **reminder** for tasks still due today.
+Both are written into the conversation (`messages`) and pushed to subscribed devices.
+Settings screen: times, notifications on/off, Brief-me-now, test push, voice picker.
+
+Web Push uses VAPID keys the Worker generates on first use and stores in the `settings` table
+(never returned by any API). Pushes carry **no payload** — the service worker fetches the text
+from `/api/notice` (cookie-authenticated), so briefing text never passes through Google/Apple.
+iPhone/iPad need the app installed to the Home Screen (iOS 16.4+) before notifications work.
+
+Migration `0002_notifications.sql` must be applied (`npm run migrate`) before deploying.
+
+## Defaults on load
+
+Conversation mode (mic), spoken replies and the wake word are on by default; turning one off is
+remembered (`localStorage`). The conversation panel starts clean — greeting plus today's briefing;
+full history is in the Conversations view. Browsers won't speak until the first tap/keypress, so
+that first interaction unlocks the voice.

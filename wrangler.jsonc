@@ -13,6 +13,9 @@
     { "pattern": "www.howardjarvis.app", "custom_domain": true }
   ],
 
+  // Every 10 minutes: src/notify.js decides whether a briefing or reminder is due.
+  "triggers": { "crons": ["*/10 * * * *"] },
+
   "vars": {
     "CLAUDE_MODEL": "claude-sonnet-5-5"
   },

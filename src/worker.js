@@ -3,6 +3,8 @@
 // no session table is needed. Data lives in D1: tasks, notes, chat history.
 // Static UI is served from public/ via the ASSETS binding; only /api/* hits this.
 
+import { handleNotifyApi, runTick } from "./notify.js";
+
 const COOKIE = "hj_session";
 const SESSION_DAYS = 30;
 const MAX_FAILED = 5;
@@ -321,10 +323,17 @@ async function handleApi(request, env, url) {
     return json({ messages: results.reverse() });
   }
   if (pathname === "/api/chat" && method === "POST") return chat(request, env);
+  const notify = await handleNotifyApi(request, env, url);
+  if (notify) return notify;
   return json({ error: "not found" }, 404);
 }
 
 export default {
+  // Cron trigger (see wrangler.jsonc): morning briefing + due-date reminder when their time arrives.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runTick(env).catch((err) => console.error("scheduled tick failed", err)));
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.hostname === "www.howardjarvis.app") {
