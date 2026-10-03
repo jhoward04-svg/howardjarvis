@@ -798,7 +798,7 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
-const APP_VERSION = "2026-10-03.10";
+const APP_VERSION = "2026-10-03.11";
 $("appVersion").textContent = "App version " + APP_VERSION;
 
 // One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
@@ -838,6 +838,7 @@ $("voiceCheck").onclick = async () => {
       const st = await navigator.mediaDevices.getUserMedia({ audio: true }); st.getTracks().forEach((t) => t.stop()); add("✓ microphone access granted");
     } else add("✗ no microphone API in this browser");
   } catch (e) { add("✗ microphone: " + e.name + " — " + e.message); }
+  if (voice.events.length) { add(""); add("recent voice events:"); voice.events.slice(-18).forEach((l) => add("  " + l)); }
   add("done — send me a screenshot of this box if anything shows ✗.");
 };
 
@@ -1078,7 +1079,7 @@ const orb = (() => {
 // listening resumes afterwards. The mic is paused while Jarvis speaks so he
 // doesn't hear himself. Replies are read aloud when the message was dictated,
 // or always if the Voice toggle is on.
-const voice = { dictated: false, speakAlways: false, cfg: { ready: false, voices: [] }, say(t, done) { orb.set("idle"); done && done(); }, resume() {}, stopSpeaking() {} };
+const voice = { events: [], log(m) { try { this.events.push(new Date().toLocaleTimeString() + "  " + m); if (this.events.length > 80) this.events.shift(); } catch {} }, dictated: false, speakAlways: false, cfg: { ready: false, voices: [] }, say(t, done) { orb.set("idle"); done && done(); }, resume() {}, stopSpeaking() {} };
 const getPref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
 const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
@@ -1087,24 +1088,63 @@ const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 // so the conversation-mode code doesn't care which engine is underneath. This is what makes listening work
 // in the installed iPhone app, where the built-in speech recognition doesn't exist.
 class CloudRec {
-  constructor(onLevel) { this.onLevel = onLevel; this.continuous = false; this.interimResults = false; this.lang = ""; this.onresult = this.onend = this.onerror = null; this.state = "idle"; }
+  constructor(onLevel) { this.onLevel = onLevel; this.continuous = false; this.interimResults = false; this.lang = ""; this.onresult = this.onend = this.onerror = null; this.state = "idle"; this.shared = null; }
+
+  // Phones only open the microphone from a tap, never later on their own. So conversation mode opens it ONCE, from a
+  // tap, and keeps it for the whole conversation (muted whenever Jarvis is thinking or speaking). Call from a tap.
+  async prime() {
+    if (this.alive()) return true;
+    this.release();
+    try {
+      try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
+      const t0 = Date.now();
+      const stream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }),
+        new Promise((_, no) => setTimeout(() => no(new Error("timed out waiting for the microphone")), 8000)),
+      ]);
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AC(); try { await ctx.resume(); } catch {}
+      const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
+      this.shared = { stream, ctx, an };
+      stream.getTracks().forEach((t) => { t.onended = () => { voice.log("microphone was taken away by the phone"); this.shared = null; }; t.enabled = false; });
+      voice.log("microphone opened once for the conversation (" + (Date.now() - t0) + " ms, audio " + ctx.state + ")");
+      return true;
+    } catch (e) { voice.log("could not open the microphone: " + (e && e.name) + " " + (e && e.message)); this.release(); return false; }
+  }
+  alive() { const s = this.shared; return !!s && s.ctx.state !== "closed" && s.stream.getTracks().length > 0 && s.stream.getTracks().every((t) => t.readyState === "live"); }
+  mute(on) { if (this.shared) this.shared.stream.getTracks().forEach((t) => { t.enabled = !on; }); }
+  release() {
+    const s = this.shared; this.shared = null;
+    if (!s) return;
+    try { s.stream.getTracks().forEach((t) => { t.onended = null; t.stop(); }); } catch {}
+    try { s.ctx.close(); } catch {}
+  }
+
   start() {
     if (this.state !== "idle") throw new Error("InvalidStateError");
     this.state = "starting"; this._abort = false; this._heard = false;
-    this._run().catch((e) => { console.error("listening failed", e); this._cleanup(); this._finish("audio-capture"); });
+    this._run().catch((e) => { voice.log("listening failed: " + (e && e.message)); console.error("listening failed", e); this._cleanup(); this._finish("audio-capture"); });
   }
   stop() { if (this.state === "listening") this._stopRecorder(); }
   abort() { this._abort = true; if (this.state === "listening") this._stopRecorder(); }
   async _run() {
-    let stream;
-    try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-    catch { return this._finish("not-allowed"); }
-    if (this._abort) { stream.getTracks().forEach((t) => t.stop()); return this._finish(null); }
-    this.stream = stream; this.state = "listening";
-    const AC = window.AudioContext || window.webkitAudioContext;
-    const ctx = (this.ctx = new AC()); if (ctx.state === "suspended") ctx.resume().catch(() => {});
-    const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
+    let stream, an, ctx;
+    if (this.alive()) {                                   // conversation mode: reuse the microphone opened by the tap
+      ({ stream, an, ctx } = this.shared); this._shared = true;
+      if (ctx.state === "suspended") { try { await ctx.resume(); } catch {} }
+      this.mute(false);
+    } else {                                              // push-to-talk: open it for this one utterance (we're inside a tap)
+      this._shared = false;
+      try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+      catch (e) { voice.log("microphone refused: " + (e && e.name)); return this._finish("not-allowed"); }
+      if (this._abort) { stream.getTracks().forEach((t) => t.stop()); return this._finish(null); }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ctx = new AC(); if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
+      this.stream = stream; this.ctx = ctx;
+    }
+    this.state = "listening";
     const buf = new Uint8Array(an.fftSize);
     const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
     const rec = (this.rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined));
@@ -1112,6 +1152,7 @@ class CloudRec {
     rec.ondataavailable = (e) => { if (e.data && e.data.size) this.chunks.push(e.data); };
     rec.onstop = () => this._onRecorded();
     rec.start(250);
+    voice.log("listening");
     // Voice detection: "background" is the quietest recent level (it only creeps upward slowly), so speech that
     // starts the instant you tap is never mistaken for room noise. Speech = clearly above that, within limits.
     const t0 = Date.now(); let lastVoice = 0, floor = -1;
@@ -1135,6 +1176,7 @@ class CloudRec {
   }
   _cleanup() {
     clearInterval(this.timer);
+    if (this._shared) { this.mute(true); return; }          // keep the conversation's microphone, just mute it
     try { this.stream && this.stream.getTracks().forEach((t) => t.stop()); } catch {}
     try { this.ctx && this.ctx.close(); } catch {}
     this.stream = this.ctx = null;
@@ -1145,17 +1187,19 @@ class CloudRec {
     this.chunks = [];
     if (this._abort) return this._finish(null);
     if (!this._heard || blob.size < 800) return this._finish("no-speech");
+    voice.log("sending " + Math.round(blob.size / 1000) + " KB for transcription");
     try {
-      const res = await fetch("/api/voice/transcribe", { method: "POST", headers: { "content-type": this.mime }, body: blob });
+      const res = await fetch("/api/voice/transcribe", { method: "POST", headers: { "content-type": this.mime }, body: blob, signal: AbortSignal.timeout(25000) });
       if (res.status === 401) { showLogin(); return this._finish(null); }
       if (res.status === 429) return this._finish("cap");
       if (!res.ok) return this._finish("network");
       const { text } = await res.json();
+      voice.log("heard: “" + String(text).slice(0, 60) + "”");
       if (this._abort) return this._finish(null);
       if (!text) return this._finish("no-speech");
       this.onresult && this.onresult({ resultIndex: 0, results: [{ 0: { transcript: text }, isFinal: true, length: 1 }] });
       return this._finish(null);
-    } catch { return this._finish("network"); }
+    } catch (e) { voice.log("transcription failed: " + (e && e.name)); return this._finish("network"); }
   }
   _finish(err) {
     this.state = "idle";
@@ -1237,7 +1281,9 @@ class CloudRec {
   voice.oaVoice = () => getPref("hj_oa_voice", "onyx");
   voice.stopSpeaking = () => { try { synth && synth.cancel(); } catch {} try { audio.pause(); } catch {} };
   const cloudSay = (text, done, report = () => {}) => {
-    try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}   // iOS: route sound to the loudspeaker, not the call earpiece
+    // iOS: route sound to the loudspeaker. But never switch to playback-only while the conversation's microphone is open —
+    // that would take the microphone away and every reply would need a tap to get it back.
+    try { if (navigator.audioSession && !(voice._rec && voice._rec.alive && voice._rec.alive())) navigator.audioSession.type = "playback"; } catch {}
     unlockAudio();                                      // we're usually inside a tap here: keep the element unlocked
     cloudBusy = true;
     const spoken = String(text).slice(0, 1500);
@@ -1296,13 +1342,14 @@ voice.initIn = function initVoiceIn() {
   rec.interimResults = !useCloud;
   voice._rec = rec;                                   // exposed for debugging
   let base = "", convo = false, paused = false;
-  let stream = null, ctx = null, lastHeard = 0, idleTimer = null, restartTimer = null;
+  let stream = null, ctx = null, lastHeard = 0, idleTimer = null, restartTimer = null, watchdog = null, needsTap = false, lastChange = Date.now(), pausedAt = 0;
+  const hint = (t, ms = 6000) => { $("chatErr").textContent = t; setTimeout(() => { if ($("chatErr").textContent === t) $("chatErr").textContent = ""; }, ms); };
 
   // Wake word (conversation mode only). While standing by, sentences without
   // "Jarvis" are discarded. Saying it opens a short window, and after each reply
   // Jarvis stays attentive for follow-ups so it doesn't need repeating every turn.
   const WAKE = /\b(jarv[iua]s|jervis|jar vis|j\.\s?a\.\s?r\.\s?v\.\s?i\.\s?s\.?)(?=\W|$)/ig;
-  const WAKE_WINDOW_MS = 10000, FOLLOW_UP_MS = 15000;
+  const WAKE_WINDOW_MS = 15000, FOLLOW_UP_MS = 45000;
   let wakeOn = true, engagedUntil = 0, engageTimer = null;
   try { wakeOn = localStorage.getItem("hj_wake") !== "0"; } catch {}
   const wakeBtn = $("wake");
@@ -1351,7 +1398,7 @@ voice.initIn = function initVoiceIn() {
   }
 
   function setListening(on) {
-    listening = on; mic.classList.toggle("listening", on); mic.setAttribute("aria-pressed", String(on));
+    listening = on; lastChange = Date.now(); mic.classList.toggle("listening", on); mic.setAttribute("aria-pressed", String(on));
     if (on) { voice.stopSpeaking(); orb.set(convo && !isEngaged() ? "standby" : "listening"); startMeter(); }
     else { if (orb.state === "listening" || orb.state === "standby") orb.set("idle"); stopMeter(); }   // never keep the mic open while Jarvis speaks
   }
@@ -1359,20 +1406,37 @@ voice.initIn = function initVoiceIn() {
     if (listening) return;
     rec.continuous = convo;
     try { rec.start(); setListening(true); }
-    catch { if (retry && convo) { clearTimeout(restartTimer); restartTimer = setTimeout(() => startListening(false), 400); } }
+    catch (e) { voice.log("start failed: " + (e && e.message)); if (retry && convo) { clearTimeout(restartTimer); restartTimer = setTimeout(() => startListening(false), 400); } }
   }
 
-  function startConvo() {
-    convo = true; paused = false; lastHeard = Date.now(); engagedUntil = 0;
+  // Conversation mode. With OpenAI listening it must begin inside a tap (the phone only opens the microphone then);
+  // the one microphone it opens is kept for the whole conversation.
+  async function startConvo() {
+    if (useCloud) {
+      const ok = await rec.prime();
+      if (!ok) { voice.log("conversation mode did not start"); hint("Tap anywhere to start listening.", 60000); return; }
+    }
+    convo = true; paused = false; needsTap = false; lastHeard = Date.now(); lastChange = Date.now(); engagedUntil = 0;
     $("convoLabel").textContent = "Conversation: on"; convoBtn.setAttribute("aria-pressed", "true");
     mic.disabled = true; $("chatErr").textContent = "";
+    voice.log("conversation mode on");
     idleTimer = setInterval(() => { if (Date.now() - lastHeard > IDLE_LIMIT_MS) stopConvo("Conversation mode ended after 10 quiet minutes."); }, 30000);
+    // Self-healing: if listening ever stalls, start it again; if a reply never finishes, carry on.
+    clearInterval(watchdog);
+    watchdog = setInterval(() => {
+      if (!convo) return;
+      const idleFor = Date.now() - lastChange;
+      if (paused && Date.now() - pausedAt > 90000) { voice.log("watchdog: the reply never finished — carrying on"); voice.resume(); }
+      else if (!paused && !listening && !needsTap && idleFor > 4000) { voice.log("watchdog: listening had stalled — restarting"); startListening(); }
+    }, 2000);
     startListening();
   }
   function stopConvo(note) {
-    convo = false; paused = false;
-    clearInterval(idleTimer); clearTimeout(restartTimer); clearTimeout(engageTimer);
+    voice.log("conversation mode off" + (note ? " (" + note + ")" : ""));
+    convo = false; paused = false; needsTap = false;
+    clearInterval(idleTimer); clearInterval(watchdog); clearTimeout(restartTimer); clearTimeout(engageTimer);
     try { rec.abort(); } catch {}
+    if (rec.release) rec.release();
     window.speechSynthesis?.cancel();
     if (orb.state !== "thinking") orb.set("idle");
     stopMeter();
@@ -1380,7 +1444,22 @@ voice.initIn = function initVoiceIn() {
     mic.disabled = false;
     if (note) $("chatErr").textContent = note;
   }
-  voice.resume = () => { if (convo) { paused = false; engage(FOLLOW_UP_MS); startListening(); } };
+  voice.resume = () => {
+    if (!convo) return;
+    paused = false; engage(FOLLOW_UP_MS); voice.log("resuming listening");
+    if (useCloud && !rec.alive()) {                    // the phone took the microphone back: it needs one tap to give it again
+      needsTap = true; orb.set("idle"); $("orbState").textContent = "tap to talk"; hint("Tap anywhere to wake the microphone.", 60000);
+      return;
+    }
+    startListening();
+  };
+  // Any tap or keypress can safely (re)open the microphone — use it to recover.
+  ["click", "touchend", "keydown"].forEach((t) => addEventListener(t, () => {
+    if (convo && useCloud && needsTap && !listening) {
+      needsTap = false; $("chatErr").textContent = "";
+      rec.prime().then((ok) => { if (ok && convo) startListening(); else { needsTap = true; } });
+    }
+  }, true));
 
   rec.onresult = (e) => {
     lastHeard = Date.now();
@@ -1389,6 +1468,8 @@ voice.initIn = function initVoiceIn() {
       for (const r of e.results) text += r[0].transcript;
       $("msg").value = (base ? base + " " : "") + text.trim();
       voice.dictated = true;
+      const last = e.results[e.results.length - 1];
+      if (last && last.isFinal && $("msg").value.trim().length > 1 && !$("send").disabled) { voice.log("dictation finished — sending"); $("chatForm").requestSubmit(); }   // talk once, it sends
       return;
     }
     let interim = "", final = "";
@@ -1404,9 +1485,10 @@ voice.initIn = function initVoiceIn() {
     const heard = (final || interim);
     const cmd = stripWake(heard);
     if (!final) { if (isEngaged() || hasWake(heard)) $("msg").value = cmd; return; }
-    if (!isEngaged() && !hasWake(final)) return;      // overheard chatter: discarded
+    if (!isEngaged() && !hasWake(final)) { voice.log("ignored (no wake word): “" + final.slice(0, 40) + "”"); hint("Heard “" + final.trim().slice(0, 50) + "” — start with “Jarvis”.", 5000); return; }      // overheard chatter: discarded
     if (cmd.length > 1 && !$("send").disabled) {
-      paused = true;                    // hold the mic while Jarvis thinks and speaks
+      paused = true; pausedAt = Date.now();   // hold the mic while Jarvis thinks and speaks
+      voice.log("sending: “" + cmd.slice(0, 50) + "”");
       try { rec.stop(); } catch {}
       voice.dictated = true;
       $("msg").value = cmd;
@@ -1417,11 +1499,14 @@ voice.initIn = function initVoiceIn() {
   };
   rec.onend = () => {
     setListening(false);
-    if (convo && !paused) { clearTimeout(restartTimer); restartTimer = setTimeout(startListening, 250); }   // Chrome ends sessions on its own
+    if (convo && !paused && !needsTap) { clearTimeout(restartTimer); restartTimer = setTimeout(startListening, 250); }   // Chrome ends sessions on its own
     else if (!convo) $("msg").focus();
   };
   rec.onerror = (e) => {
+    voice.log("listening error: " + e.error);
     if (convo && (e.error === "no-speech" || e.error === "aborted")) return;   // onend restarts
+    if (convo && useCloud && (e.error === "not-allowed" || e.error === "audio-capture")) { needsTap = true; $("orbState").textContent = "tap to talk"; hint("Tap anywhere to wake the microphone.", 60000); return; }
+    if (convo && useCloud && e.error === "network") { hint("Couldn't reach the listening service — still trying.", 5000); return; }
     const why = { "not-allowed": "microphone access was blocked — allow it in the browser's address bar", "service-not-allowed": "microphone access was blocked", "no-speech": "didn't hear anything", "audio-capture": "no microphone found", "network": "speech service unreachable", "cap": "today's OpenAI listening allowance is used up" };
     const msg = "Voice: " + (why[e.error] || e.error);
     if (convo) stopConvo(msg + ". Conversation mode switched off."); else $("chatErr").textContent = msg;
