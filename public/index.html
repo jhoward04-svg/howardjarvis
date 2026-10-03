@@ -380,7 +380,8 @@
     <section class="panel" id="p-voice" data-in="settings"><h2>Voice</h2>
       <div class="set">
         <label class="srow"><span>Jarvis speaks with</span> <select id="voiceSel"></select></label>
-        <div class="srow"><button type="button" class="ghost" id="voicePreview">▶ Preview</button><span class="hint" id="voiceHint"></span></div>
+        <div class="srow"><button type="button" class="ghost" id="voicePreview">▶ Test speech</button><span class="hint" id="voiceHint"></span></div>
+        <div class="hint">If you hear nothing: check the phone isn’t on silent, turn the media volume up, and tap once anywhere on the page first. The line above says what the browser reported.</div>
         <div class="hint">Lists every English voice your device offers. On iPhone/iPad/Mac, more British voices can be downloaded in Settings → Accessibility → Spoken Content → Voices → English (UK).</div>
       </div>
     </section>
@@ -669,7 +670,11 @@ function fillVoices() {
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
 $("voiceSel").onchange = () => { try { localStorage.setItem("hj_voice", $("voiceSel").value); } catch {} fillVoices(); };
-$("voicePreview").onclick = () => voice.say("Good day, Sir. At your service.");
+$("voicePreview").onclick = () => {
+  const trail = [];
+  $("voiceHint").textContent = "Trying…";
+  voice.say("Good day, Sir. At your service.", () => {}, (r) => { trail.push(r); $("voiceHint").textContent = trail.join(" → "); });
+};
 if ("speechSynthesis" in window) { try { speechSynthesis.addEventListener?.("voiceschanged", fillVoices); } catch {} }
 
 // scheduled briefings land in the conversation while the app is closed: refresh when it comes back
@@ -825,20 +830,40 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
     return gb.find((v) => /voice\s*2\b/i.test(v.name)) || gb.find((v) => /\b(arthur|daniel|oliver)\b/i.test(v.name)) || gb[0] || null;
   };
   voice.list = () => english().sort((a, b) => (norm(b.lang) === "en-gb") - (norm(a.lang) === "en-gb") || a.name.localeCompare(b.name));
-  voice.say = (text, done) => {
-    synth.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    const v = voice.pick(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-GB";
-    // Some browsers never fire "end" (long text, tab in background). Never let that strand the
-    // microphone: a timeout finishes the turn so listening always resumes.
-    let finished = false;
-    const finish = () => { if (finished) return; finished = true; clearTimeout(guard); orb.set("idle"); done && done(); };
-    const guard = setTimeout(() => { try { synth.cancel(); } catch {} finish(); }, Math.max(8000, text.length * 110));
-    u.onstart = () => orb.set("speaking");
-    u.onboundary = () => orb.kick(0.35);
-    u.onend = u.onerror = finish;
-    synth.speak(u);
+  // Phones (iOS especially) are fussy: speech must be unlocked by a real tap/keypress, a cancel()
+  // right before speak() can swallow the utterance, a listed voice can fail silently, and "end"
+  // doesn't always fire. So: unlock on the first tap, only cancel if something is playing, retry once
+  // with the default voice if nothing starts, and always finish the turn so the mic resumes.
+  voice.say = (text, done, report = () => {}) => {
+    try { synth.resume?.(); if (synth.speaking || synth.pending) synth.cancel(); } catch {}
+    let finished = false, started = false, retried = false, guard = 0;
+    const finish = (why) => { if (finished) return; finished = true; clearTimeout(guard); clearTimeout(startWatch); orb.set("idle"); report(why); done && done(); };
+    const attempt = (useVoice) => {
+      const u = new SpeechSynthesisUtterance(text);
+      const v = useVoice ? voice.pick() : null;
+      if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-GB";
+      u.onstart = () => { started = true; orb.set("speaking"); report("speaking" + (v ? " with " + v.name : " with the default voice")); };
+      u.onboundary = () => orb.kick(0.35);
+      u.onend = () => finish("finished");
+      u.onerror = (e) => {
+        if (e.error === "canceled" || e.error === "interrupted") return finish("stopped");
+        if (!retried && v) { retried = true; report("voice failed (" + e.error + ") — retrying with the default voice"); try { synth.cancel(); } catch {} return attempt(false); }
+        finish("error: " + e.error);
+      };
+      try { synth.speak(u); } catch (err) { finish("error: " + err.message); }
+    };
+    const startWatch = setTimeout(() => {              // nothing began: blocked, or a voice that isn't really installed
+      if (started || finished) return;
+      if (!retried) { retried = true; report("no sound started — retrying with the default voice"); try { synth.cancel(); } catch {} attempt(false); }
+    }, 2500);
+    guard = setTimeout(() => { try { synth.cancel(); } catch {} finish(started ? "finished" : "blocked: the browser never started speaking"); }, Math.max(9000, text.length * 110));
+    attempt(true);
   };
+
+  // Unlock speech on the first real tap / click / keypress (pointerdown is NOT enough on iOS).
+  voice.unlock = () => { try { const u = new SpeechSynthesisUtterance("."); u.volume = 0; synth.speak(u); } catch {} };
+  const unlockOnce = () => { ["click", "touchend", "keydown"].forEach((t) => removeEventListener(t, unlockOnce, true)); voice.unlock(); };
+  ["click", "touchend", "keydown"].forEach((t) => addEventListener(t, unlockOnce, true));
 })();
 
 (function setupVoiceIn() {
@@ -881,8 +906,9 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
 
   // Live volume for the orb. Best effort: if the meter can't open, the orb still
   // pulses on a gentle fallback while listening.
+  const IOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   async function startMeter() {
-    if (stream) return;
+    if (stream || IOS) return;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -907,7 +933,7 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
   function setListening(on) {
     listening = on; mic.classList.toggle("listening", on); mic.setAttribute("aria-pressed", String(on));
     if (on) { window.speechSynthesis?.cancel(); orb.set(convo && !isEngaged() ? "standby" : "listening"); startMeter(); }
-    else { if (orb.state === "listening" || orb.state === "standby") orb.set("idle"); if (!convo) stopMeter(); }
+    else { if (orb.state === "listening" || orb.state === "standby") orb.set("idle"); stopMeter(); }   // never keep the mic open while Jarvis speaks
   }
   function startListening(retry = true) {
     if (listening) return;
@@ -998,12 +1024,11 @@ const voice = { dictated: false, speakAlways: false, say(t, done) { orb.set("idl
     if (armed) return; armed = true;
     let wanted = true; try { wanted = localStorage.getItem("hj_convo") !== "0"; } catch {}
     const unlock = () => {
-      try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; window.speechSynthesis?.speak(u); } catch {}
       if (wanted && !convo) { startConvo(); $("chatErr").textContent = ""; }
     };
     if (wanted) { startConvo(); setTimeout(() => { if (!listening && !convo) $("chatErr").textContent = "Tap anywhere to start listening."; }, 1200); }
-    const once = () => { removeEventListener("pointerdown", once, true); removeEventListener("keydown", once, true); unlock(); };
-    addEventListener("pointerdown", once, true); addEventListener("keydown", once, true);
+    const once = () => { ["click", "touchend", "keydown"].forEach((t) => removeEventListener(t, once, true)); unlock(); };
+    ["click", "touchend", "keydown"].forEach((t) => addEventListener(t, once, true));
   };
 })();
 
