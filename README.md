@@ -64,3 +64,21 @@ Conversation mode (mic), spoken replies and the wake word are on by default; tur
 remembered (`localStorage`). The conversation panel starts clean — greeting plus today's briefing;
 full history is in the Conversations view. Browsers won't speak until the first tap/keypress, so
 that first interaction unlocks the voice.
+
+## Intelligence
+
+`src/brain.js` runs each chat turn:
+
+- **Models** — normal questions use `CLAUDE_MODEL` (default `claude-sonnet-5-5`, effort `medium`); the 🧠 *Deep think* button uses
+  `CLAUDE_DEEP_MODEL` (default `claude-opus-5-5`, effort `high`, 6000-token budget; `DEEP_DAILY_LIMIT`, default 40/day).
+  Set `CLAUDE_DEEP_MODEL=claude-fable-5-1` for the most capable (and priciest) option.
+- **Web** — Claude's server-side `web_search` and `web_fetch` tools (toggle in Settings). Answers carry source links.
+- **Tools we run** — tasks, notes, `remember`/`forget` (long-term memory), `search_library`/`save_document`
+  (FTS5 document library, PDFs are transcribed by Claude), `get_calendar` (private .ics feed, `src/ics.js` handles
+  time zones, repeating events, exceptions), and an exact `calculate` (`src/calc.js`, no `eval`).
+- **Long answers** are formatted on screen; a final `SPOKEN:` line gives a short version for the voice.
+- **Safety net** — requests go out with every feature first; if the API rejects that shape (400/404/422) the Worker retries in a
+  plain shape and remembers that for 10 minutes, so chat never goes silent. Server tools' turns are replayed unchanged.
+
+Migration `0003_intelligence.sql` (memories, documents, `doc_fts`) must be applied before deploying.
+`ANTHROPIC_BASE_URL` (optional) points the Worker at another API host — used by the local end-to-end tests.

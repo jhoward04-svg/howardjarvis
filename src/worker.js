@@ -4,6 +4,13 @@
 // Static UI is served from public/ via the ASSETS binding; only /api/* hits this.
 
 import { handleNotifyApi, runTick } from "./notify.js";
+import { clean, listTasks, addTask, setTaskDone, listNotes, addNote, listMemories, addMemory, deleteMemory } from "./data.js";
+import { parseImage, buildUserContent, buildSystemPrompt, runChat, PHOTO_PROMPT, extractPdfText, validPdfBase64 } from "./brain.js";
+import { addDocument, listDocuments, deleteDocument, libraryCount } from "./library.js";
+import { getSettings } from "./notify.js";
+import { getCalendar } from "./calendar.js";
+
+export { parseImage, buildUserContent, buildSystemPrompt };
 
 const COOKIE = "hj_session";
 const SESSION_DAYS = 30;
@@ -98,132 +105,19 @@ async function login(request, env) {
   });
 }
 
-// ---------- tasks / notes ----------
-
-const validDate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
-const clean = (s, n) => (typeof s === "string" ? s.trim().slice(0, n) : "");
-
-async function listTasks(env) {
-  const { results } = await env.DB.prepare(
-    "SELECT id, text, due_date, done_at FROM tasks WHERE done_at IS NULL OR done_at > datetime('now', '-1 day') " +
-      "ORDER BY done_at IS NOT NULL, due_date IS NULL, due_date, created_at"
-  ).all();
-  return results;
-}
-
-async function addTask(env, { text, due_date }) {
-  text = clean(text, 500);
-  if (!text) return { error: "text is required" };
-  if (due_date != null && due_date !== "" && !validDate(due_date)) return { error: "due_date must be YYYY-MM-DD" };
-  const id = crypto.randomUUID();
-  await env.DB.prepare("INSERT INTO tasks (id, text, due_date) VALUES (?, ?, ?)").bind(id, text, due_date || null).run();
-  return { id, text, due_date: due_date || null };
-}
-
-async function setTaskDone(env, id, done) {
-  const res = await env.DB.prepare("UPDATE tasks SET done_at = " + (done ? "datetime('now')" : "NULL") + " WHERE id = ?")
-    .bind(id)
-    .run();
-  return res.meta.changes ? { ok: true } : { error: "task not found" };
-}
-
-async function listNotes(env) {
-  const { results } = await env.DB.prepare("SELECT id, title, body, created_at FROM notes ORDER BY created_at DESC LIMIT 100").all();
-  return results;
-}
-
-async function addNote(env, { title, body }) {
-  title = clean(title, 200);
-  if (!title) return { error: "title is required" };
-  const id = crypto.randomUUID();
-  await env.DB.prepare("INSERT INTO notes (id, title, body) VALUES (?, ?, ?)").bind(id, title, clean(body, 10_000)).run();
-  return { id, title };
-}
-
 // ---------- chat ----------
 
-const TOOLS = [
-  {
-    name: "add_task",
-    description: "Add a to-do item for the owner. Use when they ask to be reminded of or to track something.",
-    input_schema: {
-      type: "object",
-      properties: {
-        text: { type: "string" },
-        due_date: { type: "string", description: "YYYY-MM-DD, optional" },
-      },
-      required: ["text"],
-    },
-  },
-  {
-    name: "complete_task",
-    description: "Mark a task done, by its id from the task list in the context.",
-    input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
-  },
-  {
-    name: "add_note",
-    description: "Save a note the owner wants to remember.",
-    input_schema: {
-      type: "object",
-      properties: { title: { type: "string" }, body: { type: "string" } },
-      required: ["title"],
-    },
-  },
-];
+const DEEP_DAILY_LIMIT = 40;          // deep answers cost more; a plain daily ceiling keeps a runaway tab from running up the bill
 
-async function runTool(env, name, input) {
-  if (name === "add_task") return addTask(env, input || {});
-  if (name === "complete_task") return setTaskDone(env, clean(input?.id, 100), true);
-  if (name === "add_note") return addNote(env, input || {});
-  return { error: `unknown tool ${name}` };
-}
-
-// ---------- photos ----------
-// The browser downsizes camera photos before upload; this re-checks everything
-// anyway because it is request input. Images go to Claude for this one turn only —
-// they are never written to D1 (history stores a text marker, not the picture).
-const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-const MAX_IMAGE_B64 = 6_000_000;      // ~4.5 MB decoded, under the API's 5 MB image limit
-
-export function parseImage(img) {
-  if (!img || typeof img !== "object") return null;
-  const { media_type: type, data } = img;
-  if (!IMAGE_TYPES.includes(type) || typeof data !== "string") return null;
-  if (data.length < 100 || data.length > MAX_IMAGE_B64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return null;
-  return { media_type: type, data };
-}
-
-export function buildUserContent(text, image) {
-  if (!image) return text;
-  return [{ type: "image", source: { type: "base64", media_type: image.media_type, data: image.data } }, { type: "text", text }];
-}
-
-const PHOTO_PROMPT =
-  "Here is a photo. Tell me what it shows and pull out anything useful — text, names, numbers, dates, prices. Keep it brief.";
-
-export function buildSystemPrompt(tasks, notes, today) {
-  return (
-    "You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), Howard's personal AI assistant at howardjarvis.app. " +
-    "Speak as a dry, composed British butler: address him as \"Sir\", keep a touch of understated wit, and stay brief — a sentence or two " +
-    "unless detail is asked for. You can add tasks, complete tasks and save notes with your tools; when you do, " +
-    "confirm in plain words what you did. Never claim you did something you didn't call a tool for, and never invent " +
-    "tasks or notes that aren't in the data below. When Howard sends a photo, read it carefully: transcribe the relevant text, " +
-    "identify what it is, and report the key details (for a receipt, business card, label or document, the main fields). Say " +
-    "plainly if the image is unclear — never guess at what you can't see. Only save notes or tasks from a photo when he asks; " +
-    "otherwise offer. Resolve relative dates (\"tomorrow\", \"Friday\") against today's date.\n\n" +
-    `Today is ${today}.\n\nOpen tasks (JSON):\n${JSON.stringify(tasks)}\n\nRecent notes (JSON):\n${JSON.stringify(notes.slice(0, 20))}`
-  );
-}
-
-async function callClaude(env, system, messages) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    signal: AbortSignal.timeout(30_000),
-    body: JSON.stringify({ model: env.CLAUDE_MODEL || "claude-sonnet-5-5", max_tokens: 800, system, tools: TOOLS, messages }),
-  });
-  if (!res.ok) throw new Error(`Claude API ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
-  return res.json();
+async function takeDeepAllowance(env) {
+  const day = new Date().toISOString().slice(0, 10);
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'deep_count'").first();
+  let n = 0;
+  if (row) { try { const v = JSON.parse(row.value); if (v.day === day) n = v.n; } catch {} }
+  const limit = Number(env.DEEP_DAILY_LIMIT) || DEEP_DAILY_LIMIT;
+  if (n >= limit) return false;
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('deep_count', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(JSON.stringify({ day, n: n + 1 })).run();
+  return true;
 }
 
 async function chat(request, env) {
@@ -239,33 +133,26 @@ async function chat(request, env) {
   if (body.image != null && !image) return json({ error: "that image can't be used — send a JPEG, PNG, WebP or GIF under 4 MB" }, 400);
   if (!text && !image) return json({ error: "message is required" }, 400);
 
-  const { results: past } = await env.DB.prepare("SELECT role, content FROM messages ORDER BY id DESC LIMIT 20").all();
-  const messages = [...past.reverse().map((m) => ({ role: m.role, content: m.content })), { role: "user", content: buildUserContent(text || PHOTO_PROMPT, image) }];
-  const today = new Date().toISOString().slice(0, 10);
-  let toolsUsed = false;
+  let deep = body.deep === true;
+  let deepNote = "";
+  if (deep && !(await takeDeepAllowance(env))) { deep = false; deepNote = "\n\n(Today's deep-think allowance is used up, Sir, so that was a standard answer.)"; }
 
   try {
-    const system = buildSystemPrompt((await listTasks(env)).filter((t) => !t.done_at), await listNotes(env), today);
-    let answer = "";
-    for (let step = 0; step < 5; step++) {
-      const data = await callClaude(env, system, messages);
-      const uses = (data.content || []).filter((b) => b.type === "tool_use");
-      answer = (data.content || []).map((b) => b.text || "").join("").trim();
-      if (data.stop_reason !== "tool_use" || !uses.length) break;
-      toolsUsed = true;
-      messages.push({ role: "assistant", content: data.content });
-      const resultBlocks = [];
-      for (const u of uses) {
-        resultBlocks.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(await runTool(env, u.name, u.input)) });
-      }
-      messages.push({ role: "user", content: resultBlocks });
-    }
-    if (!answer) answer = toolsUsed ? "Done." : "I didn't get a response — try again.";
+    const { results: past } = await env.DB.prepare("SELECT role, content FROM messages ORDER BY id DESC LIMIT 20").all();
+    const settings = await getSettings(env);
+    const [tasks, notes, memories, docs] = await Promise.all([listTasks(env), listNotes(env), listMemories(env, 60), libraryCount(env)]);
+    const ctx = {
+      tasks: tasks.filter((t) => !t.done_at), notes, today: new Date().toISOString().slice(0, 10),
+      extra: { memories, libraryDocs: docs, calendar: !!settings.ics_url, search: settings.web_search !== "0" },
+    };
+    const r = await runChat(env, { prompt: text || PHOTO_PROMPT, image, deep, history: past.reverse(), ctx });
+    const answer = r.answer + deepNote;
+    const stored = answer + (r.sources.length ? "\n\nSources:\n" + r.sources.map((x) => `- ${x.title} ${x.url}`).join("\n") : "");
     await env.DB.batch([
       env.DB.prepare("INSERT INTO messages (role, content) VALUES ('user', ?)").bind(image ? `📷 [photo] ${text}`.trim() : text),
-      env.DB.prepare("INSERT INTO messages (role, content) VALUES ('assistant', ?)").bind(answer),
+      env.DB.prepare("INSERT INTO messages (role, content) VALUES ('assistant', ?)").bind(stored),
     ]);
-    return json({ answer, refresh: toolsUsed });
+    return json({ answer, spoken: r.spoken, sources: r.sources, refresh: r.refresh, degraded: r.degraded, deep: r.deep });
   } catch (err) {
     console.error("chat failed", err);
     return json({ error: "temporarily unavailable — try again in a moment" }, 502);
@@ -323,6 +210,44 @@ async function handleApi(request, env, url) {
     return json({ messages: results.reverse() });
   }
   if (pathname === "/api/chat" && method === "POST") return chat(request, env);
+  // memories
+  if (pathname === "/api/memories" && method === "GET") return json({ memories: await listMemories(env, 200) });
+  if (pathname === "/api/memories" && method === "POST") {
+    const r = await addMemory(env, { fact: (await request.json().catch(() => ({}))).text });
+    return json(r, r.error ? 400 : 201);
+  }
+  const memMatch = pathname.match(/^\/api\/memories\/([\w-]+)$/);
+  if (memMatch && method === "DELETE") return json(await deleteMemory(env, memMatch[1]));
+
+  // document library
+  if (pathname === "/api/library" && method === "GET") return json({ documents: await listDocuments(env) });
+  if (pathname === "/api/library" && method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    const r = await addDocument(env, { title: b.title, text: b.text, source: "text" });
+    return json(r, r.error ? 400 : 201);
+  }
+  if (pathname === "/api/library/pdf" && method === "POST") {
+    if (!env.ANTHROPIC_API_KEY) return json({ error: "not configured: set ANTHROPIC_API_KEY" }, 503);
+    const b = await request.json().catch(() => ({}));
+    if (!validPdfBase64(b.data)) return json({ error: "that PDF can't be used — send a PDF under 4 MB" }, 400);
+    try {
+      const text = await extractPdfText(env, b.data);
+      const r = await addDocument(env, { title: clean(b.name, 200).replace(/\.pdf$/i, "") || "PDF", text, source: "pdf" });
+      return json(r, r.error ? 400 : 201);
+    } catch (err) {
+      console.error("pdf extract failed", err);
+      return json({ error: "couldn't read that PDF — it may be scanned, protected or too long (about 10 pages is the limit)" }, 502);
+    }
+  }
+  const docMatch = pathname.match(/^\/api\/library\/([\w-]+)$/);
+  if (docMatch && method === "DELETE") return json(await deleteDocument(env, docMatch[1]));
+
+  // calendar check (Settings → "Test")
+  if (pathname === "/api/calendar/test" && method === "GET") {
+    const r = await getCalendar(env, { daysAhead: 7 });
+    return json(r.error ? { error: r.error } : { ok: true, count: r.count, next: r.events.slice(0, 3) }, r.error ? 400 : 200);
+  }
+
   const notify = await handleNotifyApi(request, env, url);
   if (notify) return notify;
   return json({ error: "not found" }, 404);

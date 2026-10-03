@@ -124,6 +124,21 @@
   /* conversation */
   #log { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; min-height:140px; max-height:420px; padding-right:2px; }
   .msg { max-width:90%; padding:7px 11px; border-radius:6px; white-space:pre-wrap; word-wrap:break-word; font-size:.9rem; }
+  .msg.md { white-space:normal; }
+  .msg.md p { margin:0 0 .6em; } .msg.md p:last-of-type { margin-bottom:0; }
+  .msg.md ul, .msg.md ol { margin:.2em 0 .6em; padding-left:1.3em; display:block; }
+  .msg.md li { display:list-item; margin:.15em 0; }
+  .msg.md code { background:rgba(58,200,255,.12); border-radius:4px; padding:0 4px; font-family:ui-monospace,Consolas,monospace; font-size:.85em; }
+  .msg.md pre { background:rgba(0,0,0,.45); border:1px solid var(--line); border-radius:6px; padding:8px 10px; overflow-x:auto; margin:.4em 0; }
+  .msg.md pre code { background:none; padding:0; }
+  .msg.md a, .src a { color:var(--accent); }
+  .msg.md h4 { margin:.5em 0 .3em; font-size:.95em; color:var(--accent); letter-spacing:.04em; }
+  .src { margin-top:8px; padding-top:6px; border-top:1px dashed var(--line); font-size:.75rem; color:var(--dim); display:flex; flex-wrap:wrap; gap:4px 12px; }
+  #deep { padding:6px 10px; border-radius:99px; }
+  #deep[aria-pressed="true"] { background:rgba(167,139,250,.3); border-color:var(--violet); color:#fff; box-shadow:0 0 12px rgba(167,139,250,.5); }
+  body[data-view="home"] .panel[data-in="memory"] { display:none; }
+  .lib { display:grid; gap:8px; }
+  .drop { border:1px dashed var(--line); border-radius:8px; padding:10px; display:grid; gap:8px; }
   .msg .spk { padding:0 6px; margin-left:8px; font-size:.8rem; vertical-align:middle; border-radius:99px; }
   .msg.user { align-self:flex-end; background:rgba(58,200,255,.18); border:1px solid var(--accent); }
   .msg.assistant { align-self:flex-start; background:rgba(2,10,20,.85); border:1px solid var(--line); border-left:3px solid var(--accent-2); }
@@ -243,6 +258,7 @@
     body[data-view="home"] #p-hero h1 { font-size:clamp(1.3rem,2.4vw,2rem); margin-top:2px; }
   }
   body[data-view="chat"] #log { max-height:55vh; }
+  body:not([data-view="home"]) #grid { grid-auto-rows:max-content; }   /* panels grow to fit their content instead of being clipped */
 
   /* phone / narrow */
   @media (max-width:1100px) {
@@ -378,6 +394,18 @@
       </div>
     </section>
 
+    <section class="panel" id="p-intel" data-in="settings"><h2>Intelligence</h2>
+      <div class="set">
+        <label class="srow"><input type="checkbox" id="setSearch"> <span>Let Jarvis search the web for current facts</span></label>
+        <div class="hint">Uses Claude's built-in web search. Turn it off to keep every answer to what Jarvis already knows.</div>
+        <div class="srow"><b style="font-size:.8rem;letter-spacing:.1em">CALENDAR</b> <span id="calStatus" class="hint"></span></div>
+        <input id="icsUrl" type="url" placeholder="Paste your private calendar link (…/basic.ics)" autocomplete="off" spellcheck="false">
+        <div class="srow"><button type="button" id="calSave">Connect</button><button type="button" class="ghost" id="calTest">Test</button><button type="button" class="ghost" id="calOff">Disconnect</button></div>
+        <div class="hint">Google Calendar: Settings → your calendar → “Integrate calendar” → <b>Secret address in iCal format</b>. It's read-only, and anyone with the link can see the calendar, so keep it private. Apple/Outlook calendars have a similar “subscribe / publish” link.</div>
+        <span id="intelMsg" class="hint"></span>
+      </div>
+    </section>
+
     <section class="panel" id="p-voice" data-in="settings"><h2>Voice</h2>
       <div class="set">
         <label class="srow"><span>Jarvis speaks with</span> <select id="voiceSel"></select></label>
@@ -385,6 +413,24 @@
         <div class="hint">If you hear nothing: check the phone isn’t on silent, turn the media volume up, and tap once anywhere on the page first. The line above says what the browser reported.</div>
         <div class="hint">Lists every English voice your device offers. On iPhone/iPad/Mac, more British voices can be downloaded in Settings → Accessibility → Spoken Content → Voices → English (UK).</div>
       </div>
+    </section>
+
+    <section class="panel" id="p-lib" data-in="memory"><h2>Library <span id="libCount"></span></h2>
+      <div class="hint" style="margin-bottom:8px">Documents Jarvis can search and quote — contracts, manuals, receipts, anything. You can also say “save this” with a photo.</div>
+      <div class="scroll"><ul id="libList"></ul></div>
+      <div class="drop">
+        <input type="file" id="libFile" accept=".txt,.md,.csv,.json,.pdf,text/plain,application/pdf">
+        <div class="hint">…or paste text:</div>
+        <input id="libTitle" placeholder="Title">
+        <textarea id="libText" rows="3" placeholder="Paste the text here"></textarea>
+        <div class="srow"><button type="button" id="libSave">Add to library</button><span id="libMsg" class="hint"></span></div>
+      </div>
+    </section>
+
+    <section class="panel" id="p-mem" data-in="memory"><h2>What Jarvis remembers <span id="remCount"></span></h2>
+      <div class="hint" style="margin-bottom:8px">Facts he keeps about you. He adds these himself when you tell him something lasting; delete any that are wrong.</div>
+      <div class="scroll"><ul id="remList"></ul></div>
+      <form class="row2" id="remForm"><input id="remText" placeholder="Tell Jarvis something to remember" required><button>+</button></form>
     </section>
 
     <section class="panel" id="p-memory" data-in="home memory"><h2>Memory Bank <span id="memCount"></span></h2>
@@ -406,6 +452,7 @@
       <form id="chatForm">
         <span id="attach" hidden><img id="attachImg" alt="Attached photo"><button type="button" id="attachX" class="ghost" title="Remove photo" aria-label="Remove photo">×</button></span>
         <input id="msg" placeholder="Talk to JARVIS — or type here, Sir  ( / to focus )" autocomplete="off">
+        <button type="button" id="deep" class="ghost" aria-pressed="false" title="Deep think: a stronger model that reasons longer — slower, and costs more">🧠</button>
         <button type="button" id="cam" class="ghost" title="Take a photo" aria-label="Take a photo">📷</button>
         <button type="button" id="gallery" class="ghost" title="Choose a photo" aria-label="Choose a photo">🖼</button>
         <input type="file" id="photoCam" accept="image/*" capture="environment" hidden>
@@ -447,28 +494,83 @@ function showApp() { $("login").hidden = true; $("app").hidden = false; loadAll(
 // arrived). Earlier history is kept — it shows in the Conversations view, above this session.
 const GREETING = "Good day, Sir. How may I be of service?";
 const convoState = { history: [], session: [{ role: "assistant", text: GREETING }], shownNotice: "" };
-function domMsg(role, text, thumb) {
-  const m = el("div", { className: "msg " + role });
+// Minimal, safe Markdown: paragraphs, bullet/numbered lists, **bold**, `code`, ``` blocks, ### headings and
+// [text](https://link). Built from DOM nodes only — model output is never parsed as HTML.
+function mdInline(parent, s) {
+  const re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+  let last = 0, m;
+  while ((m = re.exec(s))) {
+    if (m.index > last) parent.append(s.slice(last, m.index));
+    const t = m[0];
+    if (t.startsWith("**")) parent.append(el("strong", { textContent: t.slice(2, -2) }));
+    else if (t.startsWith("`")) parent.append(el("code", { textContent: t.slice(1, -1) }));
+    else { const mm = t.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/); parent.append(el("a", { textContent: mm[1], href: mm[2], target: "_blank", rel: "noopener noreferrer" })); }
+    last = m.index + t.length;
+  }
+  if (last < s.length) parent.append(s.slice(last));
+}
+function renderMd(text) {
+  const frag = document.createDocumentFragment();
+  const lines = String(text).replace(/\r/g, "").split("\n");
+  const special = (l) => /^```/.test(l) || /^\s*([-*•])\s+/.test(l) || /^\s*\d+[.)]\s+/.test(l) || /^#{1,6}\s+/.test(l);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+    if (/^```/.test(line)) {
+      const buf = []; i++;
+      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+      i++; frag.append(el("pre", {}, el("code", { textContent: buf.join("\n") })));
+    } else if (/^\s*([-*•])\s+/.test(line)) {
+      const ul = el("ul");
+      while (i < lines.length && /^\s*([-*•])\s+/.test(lines[i])) { const li = el("li"); mdInline(li, lines[i].replace(/^\s*([-*•])\s+/, "")); ul.append(li); i++; }
+      frag.append(ul);
+    } else if (/^\s*\d+[.)]\s+/.test(line)) {
+      const ol = el("ol");
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { const li = el("li"); mdInline(li, lines[i].replace(/^\s*\d+[.)]\s+/, "")); ol.append(li); i++; }
+      frag.append(ol);
+    } else if (/^#{1,6}\s+/.test(line)) {
+      const h = el("h4"); mdInline(h, line.replace(/^#{1,6}\s+/, "")); frag.append(h); i++;
+    } else {
+      const buf = [];
+      while (i < lines.length && lines[i].trim() && !special(lines[i])) buf.push(lines[i++]);
+      const p = el("p");
+      buf.forEach((l, k) => { if (k) p.append(el("br")); mdInline(p, l); });
+      frag.append(p);
+    }
+  }
+  return frag;
+}
+// What to say aloud when there is no SPOKEN summary: the answer with the markup stripped.
+const plainForSpeech = (t) => String(t).replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[*`#>_]/g, "").replace(/^\s*[-•]\s+/gm, "").replace(/\s+/g, " ").trim();
+
+function domMsg(role, text, thumb, extra = {}) {
+  const m = el("div", { className: "msg " + role + (role === "assistant" ? " md" : "") });
   if (thumb) m.append(el("img", { src: thumb, alt: "Photo you sent" }));
-  m.append(document.createTextNode(text));
+  if (role === "assistant") m.append(renderMd(text)); else m.append(document.createTextNode(text));
   if (role === "assistant" && "speechSynthesis" in window) {
     const b = el("button", { type: "button", className: "ghost spk", textContent: "🔊", title: "Hear this", "aria-label": "Hear this reply" });
-    b.onclick = () => { b.disabled = true; voice.say(text.replace(/^[☀️⏰]\s*/u, ""), () => { b.disabled = false; }); };
+    b.onclick = () => { b.disabled = true; voice.say(extra.spoken || plainForSpeech(text.replace(/^[☀️⏰]\s*/u, "")), () => { b.disabled = false; }); };
     m.append(b);
+  }
+  if (extra.sources && extra.sources.length) {
+    const src = el("div", { className: "src" }, el("span", { textContent: "Sources:" }));
+    for (const x of extra.sources) if (/^https?:\/\//i.test(x.url)) src.append(el("a", { textContent: String(x.title).slice(0, 140), href: x.url, target: "_blank", rel: "noopener noreferrer" }));   // never trust a scheme from the wire
+    m.append(src);
   }
   return m;
 }
 function renderLog() {
   const full = document.body.dataset.view === "chat";
   const items = [];
-  if (full) convoState.history.forEach((m) => items.push(domMsg(m.role, m.content)));
-  convoState.session.forEach((m) => { if (!(full && m.fromNotice)) items.push(domMsg(m.role, m.text, m.thumb)); });
+  if (full) convoState.history.forEach((m) => items.push(domMsg(m.role, m.content, undefined, {})));
+  convoState.session.forEach((m) => { if (!(full && m.fromNotice)) items.push(domMsg(m.role, m.text, m.thumb, m)); });
   $("log").replaceChildren(...items);
   $("log").scrollTop = $("log").scrollHeight;
 }
-function addMsg(role, text, thumb) {
-  convoState.session.push({ role, text, thumb });
-  $("log").append(domMsg(role, text, thumb));
+function addMsg(role, text, thumb, extra = {}) {
+  convoState.session.push({ role, text, thumb, ...extra });
+  $("log").append(domMsg(role, text, thumb, extra));
   $("log").scrollTop = $("log").scrollHeight;
 }
 
@@ -596,6 +698,7 @@ function setView(v) {
   document.body.dataset.view = v;
   if (typeof renderLog === "function" && $("log")) renderLog();
   if (v === "settings" && typeof loadSettings === "function") loadSettings();
+  if (v === "memory" && typeof loadLibrary === "function") { loadLibrary().catch(() => {}); loadMemories().catch(() => {}); }
   document.querySelectorAll(".nav").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
 }
 setView("home");
@@ -624,6 +727,8 @@ async function loadSettings() {
     $("setBrief").checked = d.settings.briefing_enabled; $("setBriefTime").value = d.settings.briefing_time;
     $("setRem").checked = d.settings.reminder_enabled; $("setRemTime").value = d.settings.reminder_time;
     $("setTz").textContent = tz; cfg.vapid = d.vapidPublicKey;
+    $("setSearch").checked = d.settings.web_search;
+    $("calStatus").textContent = d.calendar_connected ? "● connected" : "not connected";
     if (d.settings.timezone !== tz) api("/settings", { method: "POST", body: { timezone: tz } }).catch(() => {});   // keep the schedule in the phone's own zone
   } catch (e) { setMsg("setMsg", e.message, true); }
   refreshPushStatus(); fillVoices();
@@ -687,6 +792,82 @@ if ("speechSynthesis" in window) { try { speechSynthesis.addEventListener?.("voi
 document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("app").hidden && document.body.dataset.view !== "settings") loadAll(); });
 navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "refresh" && !$("app").hidden) loadAll(); });
 
+
+// ---- Intelligence settings: web search + calendar ----
+$("setSearch").onchange = async () => {
+  try { await api("/settings", { method: "POST", body: { web_search: $("setSearch").checked } }); setMsg("intelMsg", $("setSearch").checked ? "Web search on." : "Web search off."); }
+  catch (e) { setMsg("intelMsg", e.message, true); }
+};
+$("calSave").onclick = async () => {
+  const url = $("icsUrl").value.trim(); if (!url) return setMsg("intelMsg", "Paste your calendar link first.", true);
+  try {
+    await api("/settings", { method: "POST", body: { ics_url: url } });
+    $("icsUrl").value = ""; $("calStatus").textContent = "● connected"; setMsg("intelMsg", "Saved. Testing…");
+    const t = await api("/calendar/test");
+    setMsg("intelMsg", `Working — ${t.count} event${t.count === 1 ? "" : "s"} in the next 7 days` + (t.next[0] ? `; next: ${t.next[0].day} ${t.next[0].start || "all day"} ${t.next[0].title}` : "") + ".");
+  } catch (e) { setMsg("intelMsg", "Saved, but the test failed: " + e.message, true); }
+};
+$("calTest").onclick = async () => {
+  try { const t = await api("/calendar/test"); setMsg("intelMsg", `Working — ${t.count} event${t.count === 1 ? "" : "s"} in the next 7 days.`); }
+  catch (e) { setMsg("intelMsg", e.message, true); }
+};
+$("calOff").onclick = async () => {
+  try { await api("/settings", { method: "POST", body: { ics_url: "" } }); $("calStatus").textContent = "not connected"; setMsg("intelMsg", "Calendar disconnected."); }
+  catch (e) { setMsg("intelMsg", e.message, true); }
+};
+
+// ---- Library + memories (Memory view) ----
+const kb = (n) => (n < 1024 ? n + " chars" : Math.round(n / 1000) + "k chars");
+async function loadLibrary() {
+  const { documents } = await api("/library");
+  const ul = $("libList"); ul.replaceChildren();
+  $("libCount").textContent = documents.length ? String(documents.length) : "";
+  if (!documents.length) ul.append(el("li", { textContent: "Nothing saved yet." }));
+  for (const d of documents) {
+    const x = el("button", { className: "x", textContent: "×", title: "Delete" });
+    x.onclick = async () => { await api("/library/" + d.id, { method: "DELETE" }); loadLibrary(); };
+    ul.append(el("li", {}, el("span", { textContent: d.title }, el("small", { textContent: `${d.source} · ${kb(d.chars)}` })), x));
+  }
+}
+async function loadMemories() {
+  const { memories } = await api("/memories");
+  const ul = $("remList"); ul.replaceChildren();
+  $("remCount").textContent = memories.length ? String(memories.length) : "";
+  if (!memories.length) ul.append(el("li", { textContent: "Nothing yet — tell Jarvis about yourself." }));
+  for (const m of memories) {
+    const x = el("button", { className: "x", textContent: "×", title: "Forget" });
+    x.onclick = async () => { await api("/memories/" + m.id, { method: "DELETE" }); loadMemories(); };
+    ul.append(el("li", {}, el("span", { textContent: m.text }), x));
+  }
+}
+$("remForm").onsubmit = async (e) => {
+  e.preventDefault();
+  try { await api("/memories", { method: "POST", body: { text: $("remText").value } }); $("remText").value = ""; loadMemories(); }
+  catch (err) { $("chatErr").textContent = err.message; }
+};
+const readAsB64 = (file) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1]); r.onerror = () => no(new Error("couldn't read the file")); r.readAsDataURL(file); });
+$("libSave").onclick = async () => {
+  setMsg("libMsg", "");
+  try {
+    const f = $("libFile").files[0];
+    if (f) {
+      const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+      if (isPdf) {
+        if (f.size > 4_000_000) return setMsg("libMsg", "That PDF is over 4 MB.", true);
+        setMsg("libMsg", "Reading the PDF — this can take up to a minute…");
+        await api("/library/pdf", { method: "POST", body: { name: f.name, data: await readAsB64(f) } });
+      } else {
+        const text = await f.text();
+        await api("/library", { method: "POST", body: { title: $("libTitle").value.trim() || f.name.replace(/\.[^.]+$/, ""), text } });
+      }
+    } else {
+      if (!$("libText").value.trim()) return setMsg("libMsg", "Choose a file or paste some text.", true);
+      await api("/library", { method: "POST", body: { title: $("libTitle").value.trim() || "Untitled", text: $("libText").value } });
+    }
+    $("libFile").value = ""; $("libTitle").value = ""; $("libText").value = ""; setMsg("libMsg", "Added to the library."); loadLibrary();
+  } catch (e) { setMsg("libMsg", e.message, true); }
+};
+
 // press "/" anywhere to talk to Jarvis
 addEventListener("keydown", (e) => {
   if (e.key === "/" && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName) && !$("app").hidden) { e.preventDefault(); $("msg").focus(); }
@@ -719,13 +900,15 @@ $("chatForm").onsubmit = async (e) => {
   clearPhoto();
   const viaVoice = voice.dictated; voice.dictated = false;
   orb.set("thinking");
+  if (deepState.on) $("orbState").textContent = "thinking deeply";
   let speaking = false;
   try {
-    const r = await api("/chat", { method: "POST", body: { message: text, ...(photo ? { image: { media_type: photo.type, data: photo.data } } : {}) } });
-    addMsg("assistant", r.answer);
+    const r = await api("/chat", { method: "POST", body: { message: text, deep: deepState.on, ...(photo ? { image: { media_type: photo.type, data: photo.data } } : {}) } });
+    addMsg("assistant", r.answer, undefined, { sources: r.sources, spoken: r.spoken });
+    if (r.degraded) $("chatErr").textContent = "Heads-up: the advanced features were unavailable just now, so that was a plain answer.";
     state.chatOk = true; state.turns += 1; renderDash();
     if (r.refresh) { loadTasks(); loadNotes(); }
-    if (voice.speakAlways || viaVoice) { try { voice.say(r.answer, () => voice.resume(), (msg) => { if (/^(blocked|error)/.test(msg)) $("chatErr").textContent = "Jarvis couldn't speak automatically — tap the 🔊 on his reply to hear it."; }); speaking = true; } catch (e2) { console.error("speech failed", e2); orb.set("idle"); } }
+    if (voice.speakAlways || viaVoice) { try { voice.say(r.spoken || plainForSpeech(r.answer), () => voice.resume(), (msg) => { if (/^(blocked|error)/.test(msg)) $("chatErr").textContent = "Jarvis couldn't speak automatically — tap the 🔊 on his reply to hear it."; }); speaking = true; } catch (e2) { console.error("speech failed", e2); orb.set("idle"); } }
     if (!speaking) orb.set("idle");
   } catch (err) { $("chatErr").textContent = err.message; state.chatOk = false; renderDash(); orb.set("idle"); }
   if (!speaking) voice.resume();
@@ -744,6 +927,13 @@ $("noteForm").onsubmit = async (e) => {
   catch (err) { $("chatErr").textContent = err.message; return; }
   $("noteTitle").value = ""; $("noteBody").value = ""; loadNotes();
 };
+
+// ---- Deep think: a stronger model that reasons longer (slower, costs more) — remembered per device ----
+const deepState = { on: false };
+try { deepState.on = localStorage.getItem("hj_deep") === "1"; } catch {}
+function paintDeep() { $("deep").setAttribute("aria-pressed", String(deepState.on)); $("deep").title = deepState.on ? "Deep think is ON — slower, smarter, costs more (tap to turn off)" : "Deep think: a stronger model that reasons longer — slower, and costs more"; }
+$("deep").onclick = () => { deepState.on = !deepState.on; try { localStorage.setItem("hj_deep", deepState.on ? "1" : "0"); } catch {} paintDeep(); };
+paintDeep();
 
 // ---- Photos: shrink on the device (long edge 1568 px, JPEG) so a phone camera shot uploads quickly. ----
 const photoState = { cur: null };

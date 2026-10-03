@@ -8,6 +8,9 @@
 // when one arrives. That avoids payload encryption and means the text of a briefing never
 // travels through the push provider (Google/Apple/Mozilla) — only an empty "wake up".
 
+import { normalizeIcsUrl } from "./ics.js";
+import { getCalendar } from "./calendar.js";
+
 const enc = new TextEncoder();
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -21,8 +24,9 @@ export const DEFAULTS = {
   briefing_enabled: "1", briefing_time: "07:30",
   reminder_enabled: "1", reminder_time: "17:00",
   timezone: "UTC", last_briefing: "", last_reminder: "",
+  web_search: "1", ics_url: "",
 };
-const PUBLIC_KEYS = ["briefing_enabled", "briefing_time", "reminder_enabled", "reminder_time", "timezone"];
+const PUBLIC_KEYS = ["briefing_enabled", "briefing_time", "reminder_enabled", "reminder_time", "timezone", "web_search"];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function validTimezone(tz) {
@@ -73,11 +77,15 @@ async function put(env, key, value) {
 
 export async function applySettings(env, body) {
   const out = {};
-  for (const k of ["briefing_enabled", "reminder_enabled"]) {
+  for (const k of ["briefing_enabled", "reminder_enabled", "web_search"]) {
     if (k in body) { if (typeof body[k] !== "boolean") return { error: `${k} must be true or false` }; out[k] = body[k] ? "1" : "0"; }
   }
   for (const k of ["briefing_time", "reminder_time"]) {
     if (k in body) { if (!TIME_RE.test(body[k])) return { error: `${k} must be HH:MM` }; out[k] = body[k]; }
+  }
+  if ("ics_url" in body) {
+    if (body.ics_url === "" || body.ics_url === null) out.ics_url = "";
+    else { const u = normalizeIcsUrl(body.ics_url); if (!u) return { error: "that isn't a usable calendar link — it must be an https:// (or webcal://) .ics address" }; out.ics_url = u; }
   }
   if ("timezone" in body) { if (!validTimezone(body.timezone)) return { error: "unknown timezone" }; out.timezone = body.timezone; }
   for (const [k, v] of Object.entries(out)) await put(env, k, v);
@@ -143,14 +151,25 @@ export function categorize(tasks, today) {
 
 const list = (ts) => ts.map((t) => t.text).join("; ");
 
-export function plainBriefing(c) {
-  if (!c.openCount) return "Good morning, Sir. Your task list is clear — nothing outstanding.";
+const clock = (e) => (e.all_day ? `${e.title} (all day)` : `${e.start} ${e.title}`);
+function calendarLine(events, today) {
+  const t = events.filter((e) => e.date === today);
+  const later = events.filter((e) => e.date > today);
+  const bits = [];
+  if (t.length) bits.push(`today you have ${t.map(clock).join("; ")}`);
+  if (later.length) bits.push(`tomorrow starts with ${clock(later[0])}`);
+  return bits.length ? `On the calendar, ${bits.join(", and ")}.` : "";
+}
+
+export function plainBriefing(c, events = [], today = "") {
+  const cal = calendarLine(events, today);
+  if (!c.openCount) return "Good morning, Sir. Your task list is clear — nothing outstanding." + (cal ? " " + cal : "");
   const parts = [];
   if (c.overdue.length) parts.push(`${c.overdue.length} overdue: ${list(c.overdue)}`);
   if (c.today.length) parts.push(`due today: ${list(c.today)}`);
   if (c.soon.length) parts.push(`coming up in the next three days: ${list(c.soon)}`);
   if (c.undated) parts.push(`${c.undated} more without a date`);
-  return `Good morning, Sir. You have ${c.openCount} open ${c.openCount === 1 ? "task" : "tasks"} — ${parts.join(". ")}.`;
+  return `Good morning, Sir. You have ${c.openCount} open ${c.openCount === 1 ? "task" : "tasks"} — ${parts.join(". ")}.` + (cal ? " " + cal : "");
 }
 
 export function plainReminder(c) {
@@ -175,15 +194,17 @@ async function claudeText(env, system, user) {
 export async function composeBriefing(env, today) {
   const { results } = await env.DB.prepare("SELECT text, due_date, done_at FROM tasks WHERE done_at IS NULL ORDER BY due_date IS NULL, due_date").all();
   const c = categorize(results, today);
-  const fallback = plainBriefing(c);
-  if (!env.ANTHROPIC_API_KEY || !c.openCount) return fallback;
+  let events = [];
+  try { const cal = await getCalendar(env, { daysAhead: 1 }); if (cal.events) events = cal.events; } catch {}
+  const fallback = plainBriefing(c, events, today);
+  if (!env.ANTHROPIC_API_KEY || (!c.openCount && !events.length)) return fallback;
   try {
     return await claudeText(
       env,
       "You are J.A.R.V.I.S., Howard's personal assistant, a dry and composed British butler who addresses him as \"Sir\". " +
         "Write his morning briefing in at most 80 words, plain text, no markdown, no lists. Lead with what is overdue or due today, " +
-        "then a brief mention of what's coming. Use only the tasks given — never invent any. Today is " + today + ".",
-      JSON.stringify({ overdue: c.overdue, due_today: c.today, next_three_days: c.soon, undated_count: c.undated })
+        "then a brief mention of what's coming, and his calendar for today (and the first thing tomorrow). Use only the tasks and events given — never invent any. Today is " + today + ".",
+      JSON.stringify({ overdue: c.overdue, due_today: c.today, next_three_days: c.soon, undated_count: c.undated, calendar_today_and_tomorrow: events })
     );
   } catch (err) {
     console.error("briefing via Claude failed, using template", err);
@@ -236,7 +257,7 @@ export async function handleNotifyApi(request, env, url) {
     const s = await getSettings(env);
     const { pub } = await ensureVapid(env);
     const { results } = await env.DB.prepare("SELECT COUNT(*) AS n FROM push_subscriptions").all();
-    return json({ settings: Object.fromEntries(PUBLIC_KEYS.map((k) => [k, k.endsWith("_enabled") ? s[k] === "1" : s[k]])), vapidPublicKey: pub, devices: results[0].n });
+    return json({ settings: Object.fromEntries(PUBLIC_KEYS.map((k) => [k, k.endsWith("_enabled") || k === "web_search" ? s[k] === "1" : s[k]])), calendar_connected: !!s.ics_url, vapidPublicKey: pub, devices: results[0].n });
   }
   if (pathname === "/api/settings" && method === "POST") {
     const r = await applySettings(env, await request.json().catch(() => ({})));
