@@ -842,7 +842,7 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
-const APP_VERSION = "2026-10-04.17";
+const APP_VERSION = "2026-10-04.18";
 $("appVersion").textContent = "App version " + APP_VERSION;
 
 // One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
@@ -1562,7 +1562,7 @@ voice.initIn = function initVoiceIn() {
   // Wake word (conversation mode only). While standing by, sentences without
   // "Jarvis" are discarded. Saying it opens a short window, and after each reply
   // Jarvis stays attentive for follow-ups so it doesn't need repeating every turn.
-  const WAKE_WINDOW_MS = 15000, FOLLOW_UP_MS = 45000;
+  const WAKE_WINDOW_MS = 15000, FOLLOW_UP_MS = 180000;
   let wakeOn = true, engagedUntil = 0, engageTimer = null;
   try { wakeOn = localStorage.getItem("hj_wake") !== "0"; } catch {}
   const wakeBtn = $("wake");
@@ -1706,7 +1706,7 @@ voice.initIn = function initVoiceIn() {
       else { $("msg").value = ""; if (!final) return; }
     }
     if (!final) { if (isEngaged() || pw.woke) $("msg").value = pw.command; return; }
-    if (!isEngaged() && !pw.woke) { voice.log("ignored (not addressed to him): “" + final.slice(0, 40) + "”"); hint("Heard “" + final.trim().slice(0, 50) + "” — start with “Jarvis”.", 5000); return; }
+    if (!isEngaged() && !pw.woke) { voice.log("ignored (not addressed to him): “" + final.slice(0, 40) + "”"); hint("Heard “" + final.trim().slice(0, 50) + "” — say “Jarvis” first (or switch Wake word off).", 7000); return; }
     const cmd = pw.command;
     if (pw.bye) { standDown(); return; }                                       // "thanks, that's all" — no need to ask the model
     if (isEngaged() && !pw.woke && pw.filler) { voice.log("ignored filler: “" + final.slice(0, 20) + "”"); return; }

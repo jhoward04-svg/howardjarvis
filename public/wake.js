@@ -11,7 +11,7 @@
 (function () {
   var NAME = "jarvis";
   // Common mis-hearings. Anything else within one edit of the name also counts (see isName).
-  var KNOWN = { jarvis: 1, jervis: 1, jarvus: 1, jarvas: 1, jarves: 1, garvis: 1, jarvice: 1, jarviss: 1, jarvous: 1, charvis: 1, jarvist: 1 };
+  var KNOWN = { jarvis: 1, jervis: 1, jarvus: 1, jarvas: 1, jarves: 1, garvis: 1, jarvice: 1, jarviss: 1, jarvous: 1, charvis: 1, jarvist: 1, gervais: 1, jarvi: 1, jarvie: 1, jarbis: 1, jarvises: 1 };
   var GREET = { hey: 1, hi: 1, hello: 1, okay: 1, ok: 1, yo: 1, oi: 1 };
   var NOT_A_CALL_AFTER = { is: 1, was: 1, says: 1, said: 1, told: 1, to: 1, has: 1, had: 1, did: 1, does: 1, thinks: 1, wants: 1 };
   var BYE = [
