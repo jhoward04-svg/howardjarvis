@@ -842,7 +842,7 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
-const APP_VERSION = "2026-10-03.15";
+const APP_VERSION = "2026-10-04.16";
 $("appVersion").textContent = "App version " + APP_VERSION;
 
 // One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
@@ -1347,7 +1347,14 @@ class CloudRec {
 
   async _after({ chunks, rate, heard, peak, secs, why }) {
     if (this._abort) return this._finish(null);
-    if (!heard) { voice.log("no speech heard (" + why + ", loudest level " + peak.toFixed(3) + ", " + secs.toFixed(1) + " s)"); return this._finish("no-speech"); }
+    if (!heard) {
+      voice.log("no speech heard (" + why + ", loudest level " + peak.toFixed(3) + ", " + secs.toFixed(1) + " s)");
+      // Perfect digital silence twice in a row means the phone has muted the microphone: drop it so it gets re-opened.
+      this._deaf = peak < 0.0003 ? (this._deaf || 0) + 1 : 0;
+      if (this._deaf >= 2) { this._deaf = 0; voice.log("the microphone is delivering silence — re-opening it"); this.release(); return this._finish("audio-capture"); }
+      return this._finish("no-speech");
+    }
+    this._deaf = 0;
     const blob = encodeWav(chunks, rate, 16000);
     voice.log("sending " + Math.round(blob.size / 1000) + " KB (" + secs.toFixed(1) + " s) for transcription");
     try {
@@ -1449,8 +1456,9 @@ function encodeWav(chunks, inRate, outRate) {
     w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
     v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
     return URL.createObjectURL(new Blob([b], { type: "audio/wav" })); })();
-  let cloudBusy = false, pending = null;      // cloudBusy: a reply is being fetched/played; pending: a reply the phone refused to start on its own
-  function unlockAudio() { if (cloudBusy) return; try { audio.src = silent; const p = audio.play(); p && p.catch(() => {}); } catch {} }
+  let cloudBusy = false, pending = null, ctxSrc = null;      // cloudBusy: a reply is being fetched/played; pending: a reply the phone refused to start on its own
+  // (with the conversation microphone open, replies play through its audio engine instead, so the element stays untouched)
+  function unlockAudio() { if (cloudBusy || (voice._rec && voice._rec.alive && voice._rec.alive())) return; try { audio.src = silent; const p = audio.play(); p && p.catch(() => {}); } catch {} }
   // A held reply plays on the next tap/keypress — playing from inside the gesture is always allowed.
   function flushPending() {
     if (!pending) return;
@@ -1460,7 +1468,7 @@ function encodeWav(chunks, inRate, outRate) {
   ["click", "touchend", "keydown"].forEach((t) => addEventListener(t, () => { flushPending(); unlockAudio(); }, true));
   const cloudOn = () => voice.cfg.ready && getPref("hj_tts", "openai") === "openai";
   voice.oaVoice = () => getPref("hj_oa_voice", "onyx");
-  voice.stopSpeaking = () => { try { synth && synth.cancel(); } catch {} try { audio.pause(); } catch {} };
+  voice.stopSpeaking = () => { try { synth && synth.cancel(); } catch {} try { audio.pause(); } catch {} if (ctxSrc) { try { ctxSrc.onended = null; ctxSrc.stop(); } catch {} ctxSrc = null; } };
   const cloudSay = (text, done, report = () => {}) => {
     // iOS: route sound to the loudspeaker. But never switch to playback-only while the conversation's microphone is open —
     // that would take the microphone away and every reply would need a tap to get it back.
@@ -1480,6 +1488,31 @@ function encodeWav(chunks, inRate, outRate) {
         if (!res.ok) { let m = "OpenAI voice unavailable"; try { m = (await res.json()).error || m; } catch {} return toDevice(m); }
         const blob = await res.blob();
         if (finished) return;
+        // While the conversation's microphone is open, play the reply through that SAME audio engine. Starting a separate
+        // <audio> element makes iPhones switch audio modes and quietly mute the microphone — the "only answers once" bug.
+        const rg = voice._rec && voice._rec.alive && voice._rec.alive() ? voice._rec.shared : null;
+        if (rg) {
+          try {
+            if (rg.ctx.state !== "running") await Promise.race([rg.ctx.resume(), new Promise((r) => setTimeout(r, 1500))]);
+            if (rg.ctx.state !== "running") throw new Error("audio engine paused");
+            const raw = await blob.arrayBuffer();
+            const decoded = await new Promise((ok, no) => { const p = rg.ctx.decodeAudioData(raw, ok, no); if (p && p.then) p.then(ok, no); });
+            if (finished) return;
+            const node = rg.ctx.createBufferSource(); node.buffer = decoded; node.connect(rg.ctx.destination);
+            ctxSrc = node; node.onended = () => { if (ctxSrc === node) ctxSrc = null; finish("finished"); };
+            node.start();
+            const ends = Date.now() + decoded.duration * 1000 + 1500;      // backstop: if the phone pauses the engine mid-reply, don't hang
+            const ticker = setInterval(() => {
+              if (finished || ctxSrc !== node) return clearInterval(ticker);
+              if (rg.ctx.state !== "running") { try { rg.ctx.resume(); } catch {} }
+              if (Date.now() > ends && rg.ctx.state === "running") { clearInterval(ticker); try { node.onended = null; node.stop(); } catch {} ctxSrc = null; finish("finished"); }
+              else if (Date.now() > ends + 4000) { clearInterval(ticker); try { node.onended = null; node.stop(); } catch {} ctxSrc = null; finish("finished (the audio engine had paused)"); }
+            }, 300);
+            orb.set("speaking"); report("speaking with the OpenAI voice “" + voice.oaVoice() + "” (through the microphone's audio engine)");
+            clearInterval(pulse); pulse = setInterval(() => orb.kick(0.25 + Math.random() * 0.25), 170);
+            return;
+          } catch (e3) { if (finished) return; report("couldn't play through the audio engine (" + (e3 && e3.message) + ") — using the audio element"); }
+        }
         url = URL.createObjectURL(blob);
         audio.onplaying = () => { orb.set("speaking"); report("speaking with the OpenAI voice “" + voice.oaVoice() + "”"); clearInterval(pulse); pulse = setInterval(() => orb.kick(0.25 + Math.random() * 0.25), 170); };
         audio.onended = () => finish("finished");
@@ -1522,7 +1555,7 @@ voice.initIn = function initVoiceIn() {
   rec.lang = navigator.language || "en-US";
   rec.interimResults = !useCloud;
   voice._rec = rec;                                   // exposed for debugging
-  let base = "", convo = false, paused = false;
+  let base = "", convo = false, paused = false, recovering = false;
   let stream = null, ctx = null, lastHeard = 0, idleTimer = null, restartTimer = null, watchdog = null, needsTap = false, lastChange = Date.now(), pausedAt = 0;
   const hint = (t, ms = 6000) => { $("chatErr").textContent = t; setTimeout(() => { if ($("chatErr").textContent === t) $("chatErr").textContent = ""; }, ms); };
 
@@ -1690,12 +1723,17 @@ voice.initIn = function initVoiceIn() {
   };
   rec.onend = () => {
     setListening(false);
-    if (convo && !paused && !needsTap) { clearTimeout(restartTimer); restartTimer = setTimeout(startListening, 250); }   // Chrome ends sessions on its own
+    if (convo && !paused && !needsTap && !recovering) { clearTimeout(restartTimer); restartTimer = setTimeout(startListening, 250); }   // Chrome ends sessions on its own
     else if (!convo) $("msg").focus();
   };
   rec.onerror = (e) => {
     voice.log("listening error: " + e.error);
     if (convo && (e.error === "no-speech" || e.error === "aborted")) return;   // onend restarts
+    if (convo && useCloud && e.error === "audio-capture" && !rec.alive() && !recovering) {   // try to re-open it quietly first
+      recovering = true;
+      rec.prime().then((ok) => { recovering = false; if (ok && convo) { voice.log("microphone re-opened"); startListening(); } else { needsTap = true; $("orbState").textContent = "tap to talk"; hint("Tap anywhere to wake the microphone.", 60000); } });
+      return;
+    }
     if (convo && useCloud && (e.error === "not-allowed" || e.error === "audio-capture")) { needsTap = true; $("orbState").textContent = "tap to talk"; hint("Tap anywhere to wake the microphone.", 60000); return; }
     if (convo && useCloud && e.error === "network") { hint("Couldn't reach the listening service — still trying.", 5000); return; }
     const why = { "not-allowed": "microphone access was blocked — allow it in the browser's address bar", "service-not-allowed": "microphone access was blocked", "no-speech": "didn't hear anything", "audio-capture": "no microphone found", "network": "speech service unreachable", "cap": "today's OpenAI listening allowance is used up" };
