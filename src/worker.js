@@ -10,6 +10,8 @@ import { addDocument, listDocuments, deleteDocument, libraryCount } from "./libr
 import { getSettings } from "./notify.js";
 import { getCalendar } from "./calendar.js";
 import { speak, transcribe, TTS_VOICES } from "./voice.js";
+import { usageReport, budgetState, resetSpendCache } from "./usage.js";
+import { exportBackup, restoreBackup, snapshot, listSnapshots, getSnapshot } from "./backup.js";
 
 export { parseImage, buildUserContent, buildSystemPrompt };
 
@@ -134,13 +136,16 @@ async function chat(request, env) {
   if (body.image != null && !image) return json({ error: "that image can't be used — send a JPEG, PNG, WebP or GIF under 4 MB" }, 400);
   if (!text && !image) return json({ error: "message is required" }, 400);
 
+  const settings = await getSettings(env);
   let deep = body.deep === true;
   let deepNote = "";
-  if (deep && !(await takeDeepAllowance(env))) { deep = false; deepNote = "\n\n(Today's deep-think allowance is used up, Sir, so that was a standard answer.)"; }
+  if (deep) {
+    if ((await budgetState(env, settings.monthly_budget)).exceeded) { deep = false; deepNote = "\n\n(This month's budget is reached, Sir, so that was a standard answer.)"; }
+    else if (!(await takeDeepAllowance(env))) { deep = false; deepNote = "\n\n(Today's deep-think allowance is used up, Sir, so that was a standard answer.)"; }
+  }
 
   try {
     const { results: past } = await env.DB.prepare("SELECT role, content FROM messages ORDER BY id DESC LIMIT 20").all();
-    const settings = await getSettings(env);
     const [tasks, notes, memories, docs] = await Promise.all([listTasks(env), listNotes(env), listMemories(env, 60), libraryCount(env)]);
     const ctx = {
       tasks: tasks.filter((t) => !t.done_at), notes, today: new Date().toISOString().slice(0, 10),
@@ -246,6 +251,38 @@ async function handleApi(request, env, url) {
   }
   const docMatch = pathname.match(/^\/api\/library\/([\w-]+)$/);
   if (docMatch && method === "DELETE") return json(await deleteDocument(env, docMatch[1]));
+
+  // spending dashboard
+  if (pathname === "/api/usage" && method === "GET") {
+    return json(await usageReport(env, Number(url.searchParams.get("days")) || 30, await getSettings(env)));
+  }
+
+  // backups
+  if (pathname === "/api/backup" && method === "GET") {
+    const data = await exportBackup(env, { secrets: url.searchParams.get("secrets") === "1" });
+    return new Response(JSON.stringify(data), { headers: { "content-type": "application/json", "cache-control": "no-store", "content-disposition": `attachment; filename="jarvis-backup-${new Date().toISOString().slice(0, 10)}.json"` } });
+  }
+  if (pathname === "/api/backup/status" && method === "GET") {
+    const st = await getSettings(env);
+    return json({ storage: !!env.BACKUPS, last_automatic: st.last_backup || "", snapshots: (await listSnapshots(env)).slice(0, 12) });
+  }
+  if (pathname === "/api/backup/snapshot" && method === "POST") {
+    const r = await snapshot(env, "manual");
+    return json(r, r.error ? 503 : 200);
+  }
+  if (pathname === "/api/restore" && method === "POST") {
+    if (Number(request.headers.get("content-length")) > 25_000_000) return json({ error: "that file is too large" }, 413);
+    const b = await request.json().catch(() => null);
+    if (!b || typeof b !== "object") return json({ error: "invalid request" }, 400);
+    const mode = b.mode === "replace" ? "replace" : "merge";
+    if (mode === "replace" && b.confirm !== "REPLACE") return json({ error: "replacing everything needs confirmation" }, 400);
+    const data = typeof b.snapshot === "string" ? await getSnapshot(env, b.snapshot) : b.backup;
+    if (!data) return json({ error: "backup not found" }, 404);
+    if (mode === "replace" && env.BACKUPS) await snapshot(env, "before-restore").catch((e) => console.error("pre-restore snapshot failed", e));
+    const r = await restoreBackup(env, data, mode);
+    resetSpendCache();
+    return json(r, r.error ? 400 : 200);
+  }
 
   // OpenAI voice (key stays on the server)
   if (pathname === "/api/voice/speak" && method === "POST") return speak(env, request);

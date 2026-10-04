@@ -219,7 +219,11 @@
   .srow input[type=time] { width:auto; }
   select { background:rgba(2,10,20,.85); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-width:100%; font:inherit; }
   .hint { color:var(--dim); font-size:.78rem; line-height:1.35; }
-  body[data-view="home"] .panel[data-in="settings"] { display:none; }
+  body[data-view="home"] .panel[data-in="settings"], body[data-view="home"] .panel[data-in="spending"] { display:none; }
+  body[data-view="spending"] .panel:not([data-in~="spending"]) { display:none; }
+  .meter { height:8px; border:1px solid var(--line); border-radius:5px; overflow:hidden; margin-top:3px; } .meter > i { display:block; height:100%; background:var(--accent); }
+  .brow { display:flex; justify-content:space-between; gap:10px; font-size:.88rem; } .brow small { color:var(--dim); display:block; }
+  .bar { flex:1; display:flex; flex-direction:column-reverse; min-width:0; border-radius:3px 3px 0 0; overflow:hidden; } .bar i { display:block; width:100%; }
   body[data-view="settings"] .panel:not([data-in~="settings"]) { display:none; }
 
   /* ---------- installed-app polish ---------- */
@@ -297,6 +301,7 @@
       <button class="nav" data-view="tasks">✅ Tasks <span class="badge" id="bTasks">0</span></button>
       <button class="nav" data-view="memory">🧠 Memory <span class="badge" id="bMem">0</span></button>
       <button class="nav" data-view="chat">💬 Conversations <span class="badge" id="bTurns">0</span></button>
+      <button class="nav" data-view="spending">💰 Spending</button>
       <button class="nav" data-view="settings">⚙️ Settings</button>
     </nav>
     <div id="voiceBox">
@@ -379,6 +384,29 @@
       </div>
     </section>
 
+    <section class="panel" id="p-spend-month" data-in="spending"><h2>This month <span>estimated</span></h2>
+      <div id="spMonth" style="font-size:2.2rem;color:var(--accent);letter-spacing:.04em">$0.00</div>
+      <div class="hint" id="spMonthSub"></div>
+      <div id="spBar" style="height:10px;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:10px 0 4px" hidden><div id="spBarFill" style="height:100%;width:0;background:var(--accent)"></div></div>
+      <div class="hint" id="spBudgetHint"></div>
+      <label class="srow" style="margin-top:8px"><span>Monthly budget $</span><input id="spBudget" type="number" min="0" step="1" inputmode="decimal" placeholder="none" style="width:110px"><button type="button" id="spBudgetSave">Set</button></label>
+      <div class="hint">When the month's estimate reaches the budget, Deep think and the OpenAI voice switch off (ordinary chat keeps working with the device voice).</div>
+    </section>
+
+    <section class="panel" id="p-spend-allow" data-in="spending"><h2>Today's allowances</h2>
+      <div class="set" id="spAllow"></div>
+    </section>
+
+    <section class="panel" id="p-spend-chart" data-in="spending"><h2>Last 14 days <span id="spRangeTotal"></span></h2>
+      <div id="spChart" style="display:flex;align-items:flex-end;gap:5px;height:150px;padding-top:6px"></div>
+      <div class="hint" style="margin-top:6px"><span style="color:#3ac8ff">■</span> Claude &nbsp;<span style="color:#a78bfa">■</span> web search &nbsp;<span style="color:#ffc34d">■</span> voice out &nbsp;<span style="color:#ff5d73">■</span> voice in &nbsp;· days are UTC</div>
+    </section>
+
+    <section class="panel" id="p-spend-break" data-in="spending"><h2>Where it went <span>last 30 days</span></h2>
+      <div class="set" id="spBreak"></div>
+      <div class="hint" style="margin-top:8px">These are estimates from list prices (Claude by tokens used, web search per search, OpenAI voice by characters spoken and minutes heard). Your Anthropic and OpenAI dashboards are the source of truth.</div>
+    </section>
+
     <section class="panel" id="p-settings" data-in="settings"><h2>Briefings &amp; Reminders</h2>
       <div class="set">
         <label class="srow"><input type="checkbox" id="setBrief"> <span>Morning briefing at</span> <input type="time" id="setBriefTime"></label>
@@ -391,6 +419,19 @@
         <div class="hint">Briefings always appear in your conversation. Enable notifications to be told on this device when one arrives.</div>
         <div class="srow"><button type="button" id="pushOn">Enable on this device</button><button type="button" class="ghost" id="pushTest">Send a test</button><button type="button" class="ghost" id="pushOff">Turn off here</button></div>
         <div class="hint" id="pushMsg"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="p-backup" data-in="settings"><h2>Backup &amp; restore</h2>
+      <div class="set">
+        <div class="hint">One file with your tasks, notes, memories, library, conversation history and preferences.</div>
+        <div class="srow"><button type="button" id="bkDownload">⬇ Download backup</button><label class="srow" style="gap:6px"><input type="checkbox" id="bkSecrets"> <span class="hint">include my calendar link (private)</span></label></div>
+        <div class="hint" id="bkAuto"></div>
+        <div class="srow" id="bkSnapRow" hidden><select id="bkSnaps" style="min-width:0;flex:1"></select><button type="button" class="ghost" id="bkSnapNow">Snapshot now</button></div>
+        <div class="srow"><b style="font-size:.8rem;letter-spacing:.1em">RESTORE</b></div>
+        <input type="file" id="bkFile" accept=".json,application/json">
+        <div class="srow"><select id="bkMode"><option value="merge">Merge — add what's missing</option><option value="replace">Replace everything with the backup</option></select><button type="button" id="bkRestore">Restore from file</button><button type="button" class="ghost" id="bkRestoreSnap" hidden>Restore chosen snapshot</button></div>
+        <span id="bkMsg" class="hint"></span>
       </div>
     </section>
 
@@ -477,7 +518,9 @@
   </footer>
 </div>
 
+<script src="/wake.js"></script>
 <script>
+const Wake = window.JarvisWake || { parse: (t) => ({ woke: /jarv[iua]s/i.test(t), command: String(t).replace(/\bjarv[iua]s\b/ig, "").replace(/^[\s,.:;!?-]+|[\s,.:;!?-]+$/g, ""), bye: false, filler: false }) };
 const $ = (id) => document.getElementById(id);
 
 async function api(path, opts = {}) {
@@ -715,7 +758,8 @@ $("search").oninput = (e) => { state.filter = e.target.value.trim().toLowerCase(
 function setView(v) {
   document.body.dataset.view = v;
   if (typeof renderLog === "function" && $("log")) renderLog();
-  if (v === "settings" && typeof loadSettings === "function") loadSettings();
+  if (v === "settings" && typeof loadSettings === "function") { loadSettings(); loadBackupStatus(); }
+  if (v === "spending" && typeof loadSpending === "function") loadSpending();
   if (v === "memory" && typeof loadLibrary === "function") { loadLibrary().catch(() => {}); loadMemories().catch(() => {}); }
   document.querySelectorAll(".nav").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
 }
@@ -798,7 +842,7 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
-const APP_VERSION = "2026-10-03.14";
+const APP_VERSION = "2026-10-03.15";
 $("appVersion").textContent = "App version " + APP_VERSION;
 
 // One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
@@ -943,6 +987,93 @@ $("libSave").onclick = async () => {
     $("libFile").value = ""; $("libTitle").value = ""; $("libText").value = ""; setMsg("libMsg", "Added to the library."); loadLibrary();
   } catch (e) { setMsg("libMsg", e.message, true); }
 };
+
+
+// ---- Spending dashboard ----
+const money = (n) => "$" + (n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2));
+const COLORS = { claude: "#3ac8ff", search: "#a78bfa", tts: "#ffc34d", stt: "#ff5d73" };
+async function loadSpending() {
+  let d; try { d = await api("/usage?days=30"); } catch (e) { $("spMonthSub").textContent = e.message; return; }
+  $("spMonth").textContent = money(d.month.cost.total);
+  $("spMonthSub").textContent = `Claude ${money(d.month.cost.claude)} · search ${money(d.month.cost.search)} · voice ${money(d.month.cost.tts + d.month.cost.stt)}`;
+  const b = d.month.budget; $("spBar").hidden = !b;
+  if (b) {
+    const pct = Math.min(100, (d.month.spent / b) * 100);
+    $("spBarFill").style.width = pct + "%"; $("spBarFill").style.background = d.month.exceeded ? "var(--danger)" : d.month.near ? "var(--accent-2)" : "var(--accent)";
+    $("spBudgetHint").textContent = d.month.exceeded ? `Budget of ${money(b)} reached — Deep think and the OpenAI voice are off until next month.` : `${Math.round(pct)}% of your ${money(b)} budget${d.month.near ? " — getting close" : ""}.`;
+    $("spBudget").value = b;
+  } else { $("spBudgetHint").textContent = "No budget set."; $("spBudget").value = ""; }
+
+  // allowances
+  const al = $("spAllow"); al.replaceChildren();
+  const meter = (label, u) => { const pct = Math.min(100, (u.used / u.limit) * 100);
+    al.append(el("div", {}, el("div", { className: "brow" }, el("span", { textContent: label }), el("span", { textContent: `${u.used.toLocaleString()} / ${u.limit.toLocaleString()}` })),
+      el("div", { className: "meter" }, el("i", { style: `width:${pct}%;${pct >= 90 ? "background:var(--danger)" : ""}` })))); };
+  meter("Deep-think answers", d.limits.deep); meter("Spoken characters", d.limits.tts_chars); meter("Listening clips", d.limits.stt_calls);
+
+  // chart: last 14 days, stacked by category
+  const last = d.days.slice(-14), max = Math.max(0.01, ...last.map((r) => r.cost.total));
+  const chart = $("spChart"); chart.replaceChildren();
+  for (const r of last) {
+    const bar = el("div", { className: "bar", title: `${r.day}: ${money(r.cost.total)}` });
+    bar.style.height = Math.max(2, (r.cost.total / max) * 100) + "%";
+    for (const k of ["claude", "search", "tts", "stt"]) { const f = r.cost.total ? r.cost[k] / r.cost.total : 0; if (f > 0) { const seg = el("i"); seg.style.height = f * 100 + "%"; seg.style.background = COLORS[k]; bar.append(seg); } }
+    chart.append(el("div", { style: "flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;min-width:0" }, bar, el("small", { textContent: r.day.slice(8), style: "color:var(--dim);font-size:.6rem" })));
+  }
+  $("spRangeTotal").textContent = money(last.reduce((a, r) => a + r.cost.total, 0));
+
+  // breakdown
+  const t = d.range, c = t.totals, br = $("spBreak"); br.replaceChildren();
+  const row = (name, sub, cost) => br.append(el("div", { className: "brow" }, el("span", {}, name, el("small", { textContent: sub })), el("b", { textContent: money(cost) })));
+  row("Claude — conversations", `${t.chats} questions (${t.deep_chats} deep)`, c.claude);
+  for (const [m, v] of Object.entries(c.byModel)) if (v >= 0.005) br.append(el("div", { className: "hint", textContent: `   ${m}: ${money(v)}` }));
+  row("Web search", `${t.searches} searches`, c.search);
+  row("Voice — speaking", `${t.tts_chars.toLocaleString()} characters`, c.tts);
+  row("Voice — listening", `${Math.round(t.stt_secs / 60 * 10) / 10} minutes`, c.stt);
+  br.append(el("div", { className: "brow", style: "border-top:1px solid var(--line);padding-top:6px" }, el("b", { textContent: "Total (30 days)" }), el("b", { textContent: money(c.total) })));
+}
+$("spBudgetSave").onclick = async () => {
+  try { await api("/settings", { method: "POST", body: { monthly_budget: $("spBudget").value === "" ? "" : Number($("spBudget").value) } }); loadSpending(); }
+  catch (e) { $("spBudgetHint").textContent = e.message; }
+};
+
+// ---- Backup & restore ----
+async function loadBackupStatus() {
+  try {
+    const st = await api("/backup/status");
+    $("bkSnapRow").hidden = !st.storage; $("bkRestoreSnap").hidden = !st.storage;
+    $("bkAuto").textContent = st.storage ? (st.last_automatic ? `Automatic weekly snapshots are on (last: ${st.last_automatic}). The newest 12 are kept.` : "Automatic weekly snapshots are on — the first one runs on a Sunday-ish early morning, or take one now.") : "Automatic snapshots aren't set up.";
+    $("bkSnaps").replaceChildren(...st.snapshots.map((x) => el("option", { value: x.key, textContent: x.key.replace("snapshots/", "").replace(".json", "") + "  (" + Math.round(x.size / 1000) + " KB)" })));
+    if (!st.snapshots.length && st.storage) $("bkSnaps").append(el("option", { value: "", textContent: "no snapshots yet" }));
+  } catch {}
+}
+const bkSay = (t, bad) => { $("bkMsg").textContent = t; $("bkMsg").style.color = bad ? "var(--danger)" : "var(--dim)"; };
+$("bkDownload").onclick = async () => {
+  try {
+    const res = await fetch("/api/backup" + ($("bkSecrets").checked ? "?secrets=1" : ""));
+    if (res.status === 401) { showLogin(); return; }
+    if (!res.ok) throw new Error("the server refused (" + res.status + ")");
+    const blob = await res.blob(); const a = el("a", { href: URL.createObjectURL(blob), download: "jarvis-backup-" + new Date().toISOString().slice(0, 10) + ".json" });
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    bkSay("Downloaded. Keep the file somewhere safe" + ($("bkSecrets").checked ? " — it contains your private calendar link." : "."));
+  } catch (e) { bkSay(e.message, true); }
+};
+$("bkSnapNow").onclick = async () => { try { await api("/backup/snapshot", { method: "POST", body: {} }); bkSay("Snapshot saved."); loadBackupStatus(); } catch (e) { bkSay(e.message, true); } };
+async function doRestore(body) {
+  const mode = $("bkMode").value;
+  if (mode === "replace" && !confirm("Replace EVERYTHING (tasks, notes, memories, library, history) with this backup? A safety snapshot is taken first if automatic snapshots are on.")) return;
+  try {
+    const r = await api("/restore", { method: "POST", body: { ...body, mode, ...(mode === "replace" ? { confirm: "REPLACE" } : {}) } });
+    const c = r.counts; bkSay(`Restored (${mode}): ${c.tasks} tasks, ${c.notes} notes, ${c.memories} memories, ${c.documents} documents` + (c.messages ? `, ${c.messages} messages` : "") + ".");
+    loadAll(); loadBackupStatus();
+  } catch (e) { bkSay(e.message, true); }
+}
+$("bkRestore").onclick = async () => {
+  const f = $("bkFile").files[0]; if (!f) return bkSay("Choose a backup file first.", true);
+  let data; try { data = JSON.parse(await f.text()); } catch { return bkSay("That file isn't valid JSON.", true); }
+  doRestore({ backup: data });
+};
+$("bkRestoreSnap").onclick = () => { const k = $("bkSnaps").value; if (!k) return bkSay("No snapshot selected.", true); doRestore({ snapshot: k }); };
 
 // press "/" anywhere to talk to Jarvis
 addEventListener("keydown", (e) => {
@@ -1398,7 +1529,6 @@ voice.initIn = function initVoiceIn() {
   // Wake word (conversation mode only). While standing by, sentences without
   // "Jarvis" are discarded. Saying it opens a short window, and after each reply
   // Jarvis stays attentive for follow-ups so it doesn't need repeating every turn.
-  const WAKE = /\b(jarv[iua]s|jervis|jar vis|j\.\s?a\.\s?r\.\s?v\.\s?i\.\s?s\.?)(?=\W|$)/ig;
   const WAKE_WINDOW_MS = 15000, FOLLOW_UP_MS = 45000;
   let wakeOn = true, engagedUntil = 0, engageTimer = null;
   try { wakeOn = localStorage.getItem("hj_wake") !== "0"; } catch {}
@@ -1407,8 +1537,6 @@ voice.initIn = function initVoiceIn() {
   const paintWake = () => { wakeBtn.textContent = wakeOn ? "🗣 Wake word: on" : "🗣 Wake word: off"; wakeBtn.setAttribute("aria-pressed", String(wakeOn)); };
   paintWake();
   const isEngaged = () => !wakeOn || Date.now() < engagedUntil;
-  const hasWake = (t) => { WAKE.lastIndex = 0; return WAKE.test(t); };
-  const stripWake = (t) => t.replace(WAKE, " ").replace(/\s+/g, " ").replace(/^[\s,.:;!?-]+|[\s,.:;!?-]+$/g, "");
   function engage(ms) {
     engagedUntil = Date.now() + ms;
     clearTimeout(engageTimer);
@@ -1494,15 +1622,25 @@ voice.initIn = function initVoiceIn() {
     mic.disabled = false;
     if (note) $("chatErr").textContent = note;
   }
-  voice.resume = () => {
+  // "Thanks, that's all": answer from here (free, instant) and go back to waiting for his name.
+  function standDown() {
+    voice.log("stood down on request");
+    engagedUntil = 0; clearTimeout(engageTimer); $("msg").value = "";
+    paused = true; pausedAt = Date.now(); try { rec.stop(); } catch {}
+    const line = "Very good, Sir.";
+    addMsg("assistant", line);
+    voice.say(line, () => resumeListening(0));
+  }
+  voice.resume = () => resumeListening(FOLLOW_UP_MS);
+  function resumeListening(engageMs) {
     if (!convo) return;
-    paused = false; engage(FOLLOW_UP_MS); voice.log("resuming listening");
+    paused = false; if (engageMs) engage(engageMs); voice.log("resuming listening");
     if (useCloud && !rec.alive()) {                    // the phone took the microphone back: it needs one tap to give it again
       needsTap = true; orb.set("idle"); $("orbState").textContent = "tap to talk"; hint("Tap anywhere to wake the microphone.", 60000);
       return;
     }
     startListening();
-  };
+  }
   // Any tap or keypress can safely (re)open the microphone — use it to recover.
   ["click", "touchend", "keydown"].forEach((t) => addEventListener(t, () => {
     if (convo && useCloud && needsTap && !listening) {
@@ -1528,15 +1666,17 @@ voice.initIn = function initVoiceIn() {
       const r = e.results[i];
       if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
     }
+    const pw = Wake.parse(final || interim);          // does it address Jarvis? what is the actual request?
     if (!isEngaged()) {
-      // Standing by: ignore everything until the wake word is heard.
-      if (hasWake(interim) || hasWake(final)) { orb.set("listening"); orb.kick(0.5); }
+      // Standing by: ignore everything until he is addressed by name.
+      if (pw.woke) { orb.set("listening"); orb.kick(0.5); }
       else { $("msg").value = ""; if (!final) return; }
     }
-    const heard = (final || interim);
-    const cmd = stripWake(heard);
-    if (!final) { if (isEngaged() || hasWake(heard)) $("msg").value = cmd; return; }
-    if (!isEngaged() && !hasWake(final)) { voice.log("ignored (no wake word): “" + final.slice(0, 40) + "”"); hint("Heard “" + final.trim().slice(0, 50) + "” — start with “Jarvis”.", 5000); return; }      // overheard chatter: discarded
+    if (!final) { if (isEngaged() || pw.woke) $("msg").value = pw.command; return; }
+    if (!isEngaged() && !pw.woke) { voice.log("ignored (not addressed to him): “" + final.slice(0, 40) + "”"); hint("Heard “" + final.trim().slice(0, 50) + "” — start with “Jarvis”.", 5000); return; }
+    const cmd = pw.command;
+    if (pw.bye) { standDown(); return; }                                       // "thanks, that's all" — no need to ask the model
+    if (isEngaged() && !pw.woke && pw.filler) { voice.log("ignored filler: “" + final.slice(0, 20) + "”"); return; }
     if (cmd.length > 1 && !$("send").disabled) {
       paused = true; pausedAt = Date.now();   // hold the mic while Jarvis thinks and speaks
       voice.log("sending: “" + cmd.slice(0, 50) + "”");

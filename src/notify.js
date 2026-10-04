@@ -10,6 +10,8 @@
 
 import { normalizeIcsUrl } from "./ics.js";
 import { getCalendar } from "./calendar.js";
+import { recordUsage, claudeEntries } from "./usage.js";
+import { snapshot } from "./backup.js";
 
 const enc = new TextEncoder();
 const json = (data, status = 200) =>
@@ -24,9 +26,9 @@ export const DEFAULTS = {
   briefing_enabled: "1", briefing_time: "07:30",
   reminder_enabled: "1", reminder_time: "17:00",
   timezone: "UTC", last_briefing: "", last_reminder: "",
-  web_search: "1", ics_url: "",
+  web_search: "1", ics_url: "", monthly_budget: "", last_backup: "",
 };
-const PUBLIC_KEYS = ["briefing_enabled", "briefing_time", "reminder_enabled", "reminder_time", "timezone", "web_search"];
+const PUBLIC_KEYS = ["briefing_enabled", "briefing_time", "reminder_enabled", "reminder_time", "timezone", "web_search", "monthly_budget"];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function validTimezone(tz) {
@@ -82,6 +84,11 @@ export async function applySettings(env, body) {
   }
   for (const k of ["briefing_time", "reminder_time"]) {
     if (k in body) { if (!TIME_RE.test(body[k])) return { error: `${k} must be HH:MM` }; out[k] = body[k]; }
+  }
+  if ("monthly_budget" in body) {
+    const raw = body.monthly_budget;
+    if (raw === "" || raw === null) out.monthly_budget = "";
+    else { const n = Number(raw); if (!Number.isFinite(n) || n < 0 || n > 100000) return { error: "monthly_budget must be a dollar amount" }; out.monthly_budget = n > 0 ? String(Math.round(n * 100) / 100) : ""; }
   }
   if ("ics_url" in body) {
     if (body.ics_url === "" || body.ics_url === null) out.ics_url = "";
@@ -186,6 +193,7 @@ async function claudeText(env, system, user) {
   });
   if (!res.ok) throw new Error(`Claude API ${res.status}`);
   const data = await res.json();
+  await recordUsage(env, claudeEntries(data.model || env.CLAUDE_MODEL || "claude-sonnet-5-5", data.usage));
   const text = (data.content || []).map((b) => b.text || "").join("").trim();
   if (!text) throw new Error("empty briefing");
   return text;
@@ -245,6 +253,11 @@ export async function runTick(env, now = new Date()) {
     const c = categorize(results, date);
     if (c.today.length) { await deliver(env, { title: "Due today", text: plainReminder(c), emoji: "⏰", kind: "reminder" }); done.push("reminder"); }
   }
+  // Weekly automatic backup (only when backup storage is connected), after 03:00 local time.
+  if (env.BACKUPS && localParts(now, s.timezone).time >= "03:00" && (!s.last_backup || dayDiff(date, s.last_backup) >= 7)) {
+    await put(env, "last_backup", date);
+    try { const r = await snapshot(env, "weekly"); if (r.ok) done.push("backup"); } catch (err) { console.error("weekly backup failed", err); }
+  }
   return done;
 }
 
@@ -257,7 +270,7 @@ export async function handleNotifyApi(request, env, url) {
     const s = await getSettings(env);
     const { pub } = await ensureVapid(env);
     const { results } = await env.DB.prepare("SELECT COUNT(*) AS n FROM push_subscriptions").all();
-    return json({ settings: Object.fromEntries(PUBLIC_KEYS.map((k) => [k, k.endsWith("_enabled") || k === "web_search" ? s[k] === "1" : s[k]])), calendar_connected: !!s.ics_url, vapidPublicKey: pub, devices: results[0].n });
+    return json({ settings: Object.fromEntries(PUBLIC_KEYS.map((k) => [k, k.endsWith("_enabled") || k === "web_search" ? s[k] === "1" : s[k]])), last_backup: s.last_backup || "", calendar_connected: !!s.ics_url, vapidPublicKey: pub, devices: results[0].n });
   }
   if (pathname === "/api/settings" && method === "POST") {
     const r = await applySettings(env, await request.json().catch(() => ({})));

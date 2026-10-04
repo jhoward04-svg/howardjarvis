@@ -97,3 +97,19 @@ Needs one secret: `OPENAI_API_KEY` (Worker → Settings → Variables and Secret
 - Playback uses one persistent `<audio>` element, unlocked by a silent clip on the first tap (iOS rule). Any failure falls back to
   the device voice. Settings → Voice picks the engines and the OpenAI voice. The UI states that the voice is AI-generated.
 - With OpenAI listening, every clip of detected speech is sent to OpenAI — including while waiting for the wake word.
+
+## Spending dashboard
+
+The **Spending** view shows what Jarvis costs: this month's total (Claude, web search, voice), a 14-day chart, and a per-model breakdown. Set a **monthly budget** there; once it is reached, Deep think and OpenAI voice step aside (ordinary chat keeps working, and device voice remains free). Prices live in `src/usage.js` and are estimates — your provider dashboards are authoritative. Usage is stored in the `usage` D1 table (migration `0004_usage.sql`).
+
+## Backups
+
+Settings → **Backup & restore**:
+
+- **Download** a JSON file of tasks, notes, memories, library documents, conversation and preferences. The calendar link is only included if you opt in; push keys and secrets never are.
+- **Restore** from a file or snapshot. *Merge* adds what is missing; *Replace* swaps everything and asks for confirmation. The file is validated before anything changes, and a `before-restore` snapshot is taken first.
+- **Weekly snapshots** are written to the R2 bucket `howardjarvis-backups` (binding `BACKUPS`) after 03:00 local time, keeping the latest 12.
+
+## Wake word
+
+`public/wake.js` decides when Jarvis is being addressed. "Jarvis" counts at the start of a sentence (optionally after "hey/ok…") or at the very end, tolerates common mishearings, and ignores the name mid-sentence ("I told Jarvis…"). "Thanks, that's all" or "stop listening" stands him down; filler such as "um" is ignored while engaged.

@@ -234,3 +234,52 @@ describe("OpenAI voice helpers", () => {
     expect(BUTLER).toMatch(/British butler/);
   });
 });
+
+import { readFileSync } from "node:fs";
+const Wake = (() => { const root = {}; new Function("window", readFileSync(new URL("../public/wake.js", import.meta.url), "utf8"))(root); return root.JarvisWake; })();
+
+describe("wake word", () => {
+  const p = (t) => Wake.parse(t);
+  it("hears the name at the start, with or without a greeting", () => {
+    expect(p("Jarvis, what's the weather?")).toMatchObject({ woke: true, command: "what's the weather?" });
+    expect(p("Jarvis what time is it")).toMatchObject({ woke: true, command: "what time is it" });
+    expect(p("Hey Jarvis, remind me to call Mom")).toMatchObject({ woke: true, command: "remind me to call Mom" });
+    expect(p("OK Jarvis add milk to the list")).toMatchObject({ woke: true, command: "add milk to the list" });
+    expect(p("Jarvis")).toMatchObject({ woke: true, command: "" });
+    expect(p("Hey Jarvis")).toMatchObject({ woke: true, command: "" });
+  });
+  it("hears the name at the end of a sentence", () => {
+    expect(p("what's on my calendar, Jarvis")).toMatchObject({ woke: true, command: "what's on my calendar" });
+    expect(p("what is the weather Jarvis please")).toMatchObject({ woke: true, command: "what is the weather please" });
+  });
+  it("copes with mis-hearings and spelling", () => {
+    for (const w of ["Jervis", "Garvis", "Jarvus", "Jarves", "Jarvis's"]) expect(p(`${w}, what time is it`).woke).toBe(true);
+    expect(p("J.A.R.V.I.S. what time is it")).toMatchObject({ woke: true, command: "what time is it" });
+    expect(p("jar vis what time is it")).toMatchObject({ woke: true, command: "what time is it" });
+  });
+  it("does not wake on the name used in passing, or on other names", () => {
+    expect(p("I told Jarvis to order the sleeves yesterday").woke).toBe(false);
+    expect(p("my friend says Jarvis is great and the weather is fine").woke).toBe(false);
+    expect(p("Jarvis is a great assistant").woke).toBe(false);
+    expect(p("tell Travis I will call him later").woke).toBe(false);
+    expect(p("Harvey called about the order").woke).toBe(false);
+    expect(p("what time is it").woke).toBe(false);
+    expect(p("").woke).toBe(false);
+  });
+  it("recognises goodbyes and filler", () => {
+    expect(p("Thanks Jarvis")).toMatchObject({ woke: true, bye: true });
+    expect(p("thank you")).toMatchObject({ bye: true });
+    expect(p("That's all, Jarvis")).toMatchObject({ woke: true, bye: true });
+    expect(p("never mind")).toMatchObject({ bye: true });
+    expect(p("stop listening")).toMatchObject({ bye: true });
+    expect(p("Thanks for the update on the order").bye).toBe(false);
+    expect(p("um").filler).toBe(true);
+    expect(p("Okay.").filler).toBe(true);
+    expect(p("yeah").filler).toBe(true);
+    expect(p("okay what is next").filler).toBe(false);
+  });
+  it("fuzzy matching is tight enough to avoid ordinary words", () => {
+    for (const w of ["service", "harvest", "travis", "jarring", "jargon", "marvels"]) expect(Wake.isName(w)).toBe(false);
+    expect(Wake.isName("Jarvis")).toBe(true);
+  });
+});

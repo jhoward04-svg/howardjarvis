@@ -12,6 +12,7 @@ import { addTask, setTaskDone, addNote, addMemory, deleteMemory, clean } from ".
 import { calculate } from "./calc.js";
 import { addDocument, searchLibrary } from "./library.js";
 import { getCalendar } from "./calendar.js";
+import { recordUsage, claudeEntries } from "./usage.js";
 
 // ---------- photos ----------
 // The browser downsizes camera photos before upload; this re-checks everything anyway because it is request
@@ -201,11 +202,14 @@ export async function runChat(env, { prompt, image, deep, history, ctx }) {
   const messages = [...normalizeHistory(history), { role: "user", content: buildUserContent(prompt, image) }];
   const deadline = Date.now() + BUDGET_MS;
   let refresh = false, degraded = false, sources = [], final = null;
+  const spent = [["chats", 1]];
+  if (deep) spent.push(["deep_chats", 1]);
 
   for (let step = 0; step < 8; step++) {
     const r = await callClaude(env, { system, messages, deep, search: ctx.extra.search }, deadline);
     const data = r.data;
     degraded = degraded || r.degraded;
+    spent.push(...claudeEntries(data.model || pickModel(env, deep && !r.degraded), data.usage));
     const content = data.content || [];
     for (const s of extractSources(content)) if (!sources.some((x) => x.url === s.url)) sources.push(s);
 
@@ -230,6 +234,7 @@ export async function runChat(env, { prompt, image, deep, history, ctx }) {
     break;
   }
   sources = sources.slice(0, 6);
+  await recordUsage(env, spent);
 
   let text = final ? (final.content || []).filter((b) => b.type === "text").map((b) => b.text || "").join("").trim() : "";
   if (final && final.stop_reason === "refusal") text = "I'm afraid I can't help with that one, Sir.";
@@ -256,5 +261,6 @@ export async function extractPdfText(env, data) {
     ] }],
   };
   const out = await post(env, { body, betas: [] }, BUDGET_MS);
+  await recordUsage(env, claudeEntries(out.model || body.model, out.usage));
   return (out.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
 }
