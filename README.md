@@ -60,7 +60,7 @@ Migration `0002_notifications.sql` must be applied (`npm run migrate`) before de
 
 ## Defaults on load
 
-Conversation mode (mic), spoken replies and the wake word are on by default; turning one off is
+Conversation mode (mic), spoken replies are on by default (the wake word is off by default; turn it on with the 🗣 button); turning one off is
 remembered (`localStorage`). The conversation panel starts clean — greeting plus today's briefing;
 full history is in the Conversations view. Browsers won't speak until the first tap/keypress, so
 that first interaction unlocks the voice.

@@ -842,7 +842,7 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
-const APP_VERSION = "2026-10-04.18";
+const APP_VERSION = "2026-10-04.19";
 $("appVersion").textContent = "App version " + APP_VERSION;
 
 // One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
@@ -1563,8 +1563,8 @@ voice.initIn = function initVoiceIn() {
   // "Jarvis" are discarded. Saying it opens a short window, and after each reply
   // Jarvis stays attentive for follow-ups so it doesn't need repeating every turn.
   const WAKE_WINDOW_MS = 15000, FOLLOW_UP_MS = 180000;
-  let wakeOn = true, engagedUntil = 0, engageTimer = null;
-  try { wakeOn = localStorage.getItem("hj_wake") !== "0"; } catch {}
+  let wakeOn = false, engagedUntil = 0, engageTimer = null;       // off by default: he answers everything he hears
+  try { wakeOn = localStorage.getItem("hj_wake") === "1"; } catch {}
   const wakeBtn = $("wake");
   wakeBtn.hidden = false;
   const paintWake = () => { wakeBtn.textContent = wakeOn ? "🗣 Wake word: on" : "🗣 Wake word: off"; wakeBtn.setAttribute("aria-pressed", String(wakeOn)); };
