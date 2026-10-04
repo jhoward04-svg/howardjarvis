@@ -842,7 +842,7 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
-const APP_VERSION = "2026-10-04.16";
+const APP_VERSION = "2026-10-04.17";
 $("appVersion").textContent = "App version " + APP_VERSION;
 
 // One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
@@ -1210,7 +1210,7 @@ const orb = (() => {
 // listening resumes afterwards. The mic is paused while Jarvis speaks so he
 // doesn't hear himself. Replies are read aloud when the message was dictated,
 // or always if the Voice toggle is on.
-const voice = { events: [], log(m) { try { this.events.push(new Date().toLocaleTimeString() + "  " + m); if (this.events.length > 80) this.events.shift(); } catch {} }, dictated: false, speakAlways: false, cfg: { ready: false, voices: [] }, say(t, done) { orb.set("idle"); done && done(); }, resume() {}, stopSpeaking() {} };
+const voice = { events: [], log(m) { try { this.events.push(new Date().toLocaleTimeString() + "  " + m); if (this.events.length > 80) this.events.shift(); this.ship(); } catch {} }, ship() { clearTimeout(this._st); this._st = setTimeout(() => { try { fetch("/api/voice/log", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ log: this.events.slice(-60).join("\n"), ua: navigator.userAgent, version: typeof APP_VERSION === "undefined" ? "" : APP_VERSION }) }).catch(() => {}); } catch {} }, 1500); }, dictated: false, speakAlways: false, cfg: { ready: false, voices: [] }, say(t, done) { orb.set("idle"); done && done(); }, resume() {}, stopSpeaking() {} };
 const getPref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
 const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 

@@ -287,6 +287,12 @@ async function handleApi(request, env, url) {
   // OpenAI voice (key stays on the server)
   if (pathname === "/api/voice/speak" && method === "POST") return speak(env, request);
   if (pathname === "/api/voice/transcribe" && method === "POST") return transcribe(env, request);
+  if (pathname === "/api/voice/log" && method === "POST") {      // the phone's voice event log, so problems can be diagnosed without screenshots
+    const b = await request.json().catch(() => ({}));
+    const text = String(b.log || "").slice(0, 8000);
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('voice_log', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(new Date().toISOString() + "\n" + String(b.ua || "").slice(0, 200) + "\nversion " + String(b.version || "").slice(0, 30) + "\n" + text).run();
+    return json({ ok: true });
+  }
   if (pathname === "/api/voice/config" && method === "GET") return json({ ready: !!env.OPENAI_API_KEY, voices: TTS_VOICES });
 
   // calendar check (Settings → "Test")
