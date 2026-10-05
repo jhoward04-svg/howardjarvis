@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { localParts, isDue, validTimezone, isAllowedPushEndpoint, categorize, plainBriefing, plainReminder, applySettings, vapidHeader, b64u, dayDiff } from "../src/notify.js";
-import { makeSessionToken, verifySessionToken, buildSystemPrompt, parseImage, buildUserContent } from "../src/worker.js";
+import { makeSessionToken, verifySessionToken, buildSystemPrompt, parseImage, buildUserContent, localClock } from "../src/worker.js";
 
 describe("session tokens", () => {
   it("accepts a fresh token", async () => {
@@ -144,5 +144,15 @@ describe("notify: VAPID", () => {
     expect(raw.length).toBe(64);
     const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pair.publicKey, raw, new TextEncoder().encode(`${h}.${p}`));
     expect(ok).toBe(true);
+  });
+});
+
+describe("local clock", () => {
+  it("uses the owner's day, not UTC's", () => {
+    const night = new Date("2026-10-05T00:26:00Z");           // 8:26 PM on 4 October in New York
+    expect(localClock("America/New_York", night).date).toBe("2026-10-04");
+    expect(localClock("America/New_York", night).label).toContain("Sunday, 4 October 2026");
+    expect(localClock("UTC", night).date).toBe("2026-10-05");
+    expect(localClock("Not/AZone", night).tz).toBe("UTC");
   });
 });

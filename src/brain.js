@@ -119,7 +119,7 @@ export function buildSystemPrompt(tasks, notes, today, extra = {}) {
     "- Resolve relative dates (\"tomorrow\", \"Friday\") against today's date.",
   ];
   if (deep) lines.push("", "This is a deep-think request: reason carefully, check your work, and give a thorough, well-organised answer.");
-  lines.push("", `Today is ${today}.`);
+  lines.push("", `Today is ${today} (YYYY-MM-DD, in his time zone). The exact local date and time arrive with each message — trust them over your own sense of the date.`);
   lines.push("", "Memories (what you know about Howard):", memories.length ? memories.map((m) => `- [${m.id}] ${m.text}`).join("\n") : "(none yet)");
   lines.push("", `Open tasks (JSON):\n${JSON.stringify(tasks)}`, "", `Recent notes (JSON):\n${JSON.stringify(notes.slice(0, 20))}`);
   return lines.join("\n");

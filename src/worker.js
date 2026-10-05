@@ -3,6 +3,7 @@
 // no session table is needed. Data lives in D1: tasks, notes, chat history.
 // Static UI is served from public/ via the ASSETS binding; only /api/* hits this.
 
+import { safeTz } from "./ics.js";
 import { handleNotifyApi, runTick } from "./notify.js";
 import { clean, listTasks, addTask, setTaskDone, listNotes, addNote, listMemories, addMemory, deleteMemory } from "./data.js";
 import { parseImage, buildUserContent, buildSystemPrompt, runChat, PHOTO_PROMPT, extractPdfText, validPdfBase64 } from "./brain.js";
@@ -17,6 +18,14 @@ export { parseImage, buildUserContent, buildSystemPrompt };
 
 const COOKIE = "hj_session";
 const SESSION_DAYS = 30;
+// "Today" must be the owner's today, not UTC's: in the evening UTC is already tomorrow.
+export function localClock(tzSetting, now = new Date()) {
+  const tz = safeTz(tzSetting) || "UTC";
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const long = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(now);
+  const time = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(now);
+  return { date, label: `${long}, ${time}, ${tz}`, tz };
+}
 const MAX_FAILED = 5;
 const LOCK_MINUTES = 15;
 
@@ -145,13 +154,14 @@ async function chat(request, env) {
   }
 
   try {
+    const clock = localClock(settings.timezone);
     const { results: past } = await env.DB.prepare("SELECT role, content FROM messages ORDER BY id DESC LIMIT 8").all();
     const [tasks, notes, memories, docs] = await Promise.all([listTasks(env), listNotes(env), listMemories(env, 60), libraryCount(env)]);
     const ctx = {
-      tasks: tasks.filter((t) => !t.done_at), notes, today: new Date().toISOString().slice(0, 10),
+      tasks: tasks.filter((t) => !t.done_at), notes, today: clock.date,
       extra: { memories, libraryDocs: docs, calendar: !!settings.ics_url, search: settings.web_search !== "0" },
     };
-    const r = await runChat(env, { prompt: text || PHOTO_PROMPT, image, deep, history: past.reverse(), ctx });
+    const r = await runChat(env, { prompt: (text || PHOTO_PROMPT) + `\n\n(Local time now: ${clock.label}.)`, image, deep, history: past.reverse(), ctx });
     const answer = r.answer + deepNote;
     const stored = answer + (r.sources.length ? "\n\nSources:\n" + r.sources.map((x) => `- ${x.title} ${x.url}`).join("\n") : "");
     await env.DB.batch([
