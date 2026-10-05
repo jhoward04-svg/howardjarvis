@@ -145,7 +145,7 @@ async function chat(request, env) {
   }
 
   try {
-    const { results: past } = await env.DB.prepare("SELECT role, content FROM messages ORDER BY id DESC LIMIT 20").all();
+    const { results: past } = await env.DB.prepare("SELECT role, content FROM messages ORDER BY id DESC LIMIT 8").all();
     const [tasks, notes, memories, docs] = await Promise.all([listTasks(env), listNotes(env), listMemories(env, 60), libraryCount(env)]);
     const ctx = {
       tasks: tasks.filter((t) => !t.done_at), notes, today: new Date().toISOString().slice(0, 10),

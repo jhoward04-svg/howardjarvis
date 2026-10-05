@@ -70,17 +70,20 @@ export const CLIENT_TOOLS = [
     input_schema: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] } },
 ];
 
+// Marks the tools + system prompt as cacheable: repeat chats within minutes read them at a tenth of the price.
+const cachedSystem = (text) => [{ type: "text", text, cache_control: { type: "ephemeral" } }];
+
 export function buildRequest({ model, system, messages, deep, search, full }) {
   if (!full) {
-    return { body: { model, max_tokens: 1500, system, tools: CLIENT_TOOLS, messages }, betas: [] };
+    return { body: { model, max_tokens: 1500, system: cachedSystem(system), tools: CLIENT_TOOLS, messages }, betas: [] };
   }
   if (/haiku/.test(model)) {          // Haiku 4.5 takes no effort setting or server-side fallbacks, and only the basic web search tool
-    return { body: { model, max_tokens: deep ? 6000 : 2500, system, tools: [...CLIENT_TOOLS, ...(search ? HAIKU_SERVER_TOOLS : [])], messages }, betas: [] };
+    return { body: { model, max_tokens: deep ? 6000 : 2500, system: cachedSystem(system), tools: [...CLIENT_TOOLS, ...(search ? HAIKU_SERVER_TOOLS : [])], messages }, betas: [] };
   }
   const body = {
     model,
     max_tokens: deep ? 6000 : 2500,
-    system,
+    system: cachedSystem(system),
     tools: [...CLIENT_TOOLS, ...(search ? SERVER_TOOLS : [])],
     messages,
     output_config: { effort: deep ? "high" : "medium" },
@@ -144,7 +147,12 @@ export function extractSources(content, limit = 6) {
 
 // The API wants the first message to be from the user; a stored briefing can sit at the head of the history.
 export function normalizeHistory(rows) {
-  const out = rows.map((m) => ({ role: m.role, content: m.content }));
+  // Every chat re-sends this history, so keep it lean: drop the "Sources:" lists and cap very long messages.
+  const out = rows.map((m) => {
+    let c = String(m.content || "").replace(/\n\nSources:\n[\s\S]*$/, "");
+    if (c.length > 1200) c = c.slice(0, 1200) + " …";
+    return { role: m.role, content: c };
+  });
   while (out.length && out[0].role !== "user") out.shift();
   return out;
 }

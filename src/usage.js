@@ -21,7 +21,7 @@ const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
 export function claudeEntries(model, usage) {
   const m = model || "unknown";
   const out = [];
-  const inTok = num(usage?.input_tokens) + num(usage?.cache_creation_input_tokens) + num(usage?.cache_read_input_tokens) * 0.1;
+  const inTok = num(usage?.input_tokens) + num(usage?.cache_creation_input_tokens) * 1.25 + num(usage?.cache_read_input_tokens) * 0.1;
   if (inTok) out.push([`in:${m}`, inTok]);
   if (num(usage?.output_tokens)) out.push([`out:${m}`, num(usage.output_tokens)]);
   const st = usage?.server_tool_use;

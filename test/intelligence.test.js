@@ -163,6 +163,14 @@ describe("request shape", () => {
     expect(body.tools.filter((t) => t.type).map((t) => t.type)).toEqual(["web_search_20250305"]);
   });
 
+  it("keeps resent history lean and marks the system prompt cacheable", () => {
+    const h = normalizeHistory([{ role: "user", content: "q" }, { role: "assistant", content: "answer\n\nSources:\n- A http://a" + "x".repeat(50) }, { role: "user", content: "y".repeat(3000) }]);
+    expect(h[1].content).toBe("answer");
+    expect(h[2].content.length).toBeLessThan(1210);
+    const { body } = buildRequest({ model: "claude-sonnet-5-5", system: "sys", messages: [], search: false, full: true });
+    expect(body.system).toEqual([{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }]);
+  });
+
   it("picks models from the environment", () => {
     expect(pickModel({}, false)).toBe("claude-sonnet-5-5");
     expect(pickModel({}, true)).toBe("claude-opus-5-5");
