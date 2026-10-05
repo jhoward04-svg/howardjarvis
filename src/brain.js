@@ -43,6 +43,7 @@ const BUDGET_MS = 85_000;             // Cloudflare drops browser connections af
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 let degradedUntil = 0;                // per-instance memory of "the full request shape was refused"
 
+export const HAIKU_SERVER_TOOLS = [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }];
 export const SERVER_TOOLS = [
   { type: "web_search_20260209", name: "web_search", max_uses: 4 },
   { type: "web_fetch_20260209", name: "web_fetch", max_uses: 3 },
@@ -72,6 +73,9 @@ export const CLIENT_TOOLS = [
 export function buildRequest({ model, system, messages, deep, search, full }) {
   if (!full) {
     return { body: { model, max_tokens: 1500, system, tools: CLIENT_TOOLS, messages }, betas: [] };
+  }
+  if (/haiku/.test(model)) {          // Haiku 4.5 takes no effort setting or server-side fallbacks, and only the basic web search tool
+    return { body: { model, max_tokens: deep ? 6000 : 2500, system, tools: [...CLIENT_TOOLS, ...(search ? HAIKU_SERVER_TOOLS : [])], messages }, betas: [] };
   }
   const body = {
     model,

@@ -155,6 +155,14 @@ describe("request shape", () => {
     expect(new Set(names).size).toBe(names.length);
     for (const t of CLIENT_TOOLS) { expect(t.input_schema.type).toBe("object"); expect(t.description.length).toBeGreaterThan(20); }
   });
+  it("builds a Haiku-compatible request (no effort, no fallbacks, basic web search)", () => {
+    const { body, betas } = buildRequest({ model: "claude-haiku-4-5", system: "s", messages: [{ role: "user", content: "hi" }], search: true, full: true });
+    expect(body.output_config).toBeUndefined();
+    expect(body.fallbacks).toBeUndefined();
+    expect(betas).toEqual([]);
+    expect(body.tools.filter((t) => t.type).map((t) => t.type)).toEqual(["web_search_20250305"]);
+  });
+
   it("picks models from the environment", () => {
     expect(pickModel({}, false)).toBe("claude-sonnet-5-5");
     expect(pickModel({}, true)).toBe("claude-opus-5-5");

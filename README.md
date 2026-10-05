@@ -69,7 +69,7 @@ that first interaction unlocks the voice.
 
 `src/brain.js` runs each chat turn:
 
-- **Models** — normal questions use `CLAUDE_MODEL` (default `claude-sonnet-5-5`, effort `medium`); the 🧠 *Deep think* button uses
+- **Models** — normal questions use `CLAUDE_MODEL` (set to `claude-haiku-4-5` in `wrangler.jsonc` to save cost; Haiku gets basic web search and no web fetch. Sonnet 5.5 at effort `medium` is the code default); the 🧠 *Deep think* button uses
   `CLAUDE_DEEP_MODEL` (default `claude-opus-5-5`, effort `high`, 6000-token budget; `DEEP_DAILY_LIMIT`, default 40/day).
   Set `CLAUDE_DEEP_MODEL=claude-fable-5-1` for the most capable (and priciest) option.
 - **Web** — Claude's server-side `web_search` and `web_fetch` tools (toggle in Settings). Answers carry source links.
