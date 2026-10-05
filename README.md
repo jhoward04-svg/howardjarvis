@@ -129,3 +129,7 @@ Say "remind me at 3 to call the bank", "in 20 minutes…" or "every Monday at 7:
 ## Memory
 
 Edit or search memories on the Memory page. **✨ Tidy memory** has Claude propose merges, corrections and removals; nothing changes until you press *Apply all*. Jarvis can also correct a memory in place (`update_memory`).
+
+## Wikipedia
+
+Jarvis has a `wikipedia` tool (`src/wiki.js`): one free MediaWiki API call returns the best-matching articles' text, which he quotes and cites (the article links appear under the answer). He is told to use it first for factual questions and web search for anything recent. `detail: "more"` fetches a longer extract of the top article; `lang` picks another language edition. No key is needed; if Wikipedia is unreachable he falls back to web search. `WIKIPEDIA_BASE_URL` overrides the host (for tests).

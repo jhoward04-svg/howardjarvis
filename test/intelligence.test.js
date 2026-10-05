@@ -104,6 +104,7 @@ describe("calendar feed", () => {
 
 import { nextOccurrence, parseLocal } from "../src/reminders.js";
 import { sanitizeProposal } from "../src/memtidy.js";
+import { lookupWikipedia } from "../src/wiki.js";
 import { needsSmart, chooseModel } from "../src/brain.js";
 import { splitSpoken, extractSources, normalizeHistory, buildRequest, buildSystemPrompt, CLIENT_TOOLS, SERVER_TOOLS, pickModel, validPdfBase64 } from "../src/brain.js";
 import { chunkText, ftsQuery } from "../src/library.js";
@@ -360,5 +361,37 @@ describe("memory tidy proposals", () => {
     expect(p.update).toEqual([{ id: "c", text: "C2", was: "C" }]);
     expect(p.delete).toHaveLength(1);
     expect(sanitizeProposal("garbage", mem)).toEqual({ merge: [], update: [], delete: [] });
+  });
+});
+
+describe("wikipedia lookup", () => {
+  const page = (title, index, extract, props) => ({ title, index, extract, fullurl: "https://en.wikipedia.org/wiki/" + title.replace(/ /g, "_"), ...(props ? { pageprops: props } : {}) });
+  const withFetch = async (fn, impl) => { const real = globalThis.fetch; globalThis.fetch = impl; try { return await fn(); } finally { globalThis.fetch = real; } };
+  const ok = (pages) => async (url, init) => { ok.last = { url: String(url), init }; return new Response(JSON.stringify({ query: { pages } }), { status: 200 }); };
+
+  it("returns the best articles in rank order, skipping disambiguation pages", async () => {
+    const r = await withFetch(() => lookupWikipedia({}, { query: "Mercury" }), ok([
+      page("Mercury (disambiguation)", 1, "Mercury may refer to:", { disambiguation: "" }),
+      page("Mercury (element)", 3, "Mercury is a chemical element."),
+      page("Mercury (planet)", 2, "Mercury is the smallest planet."),
+    ]));
+    expect(r.articles.map((a) => a.title)).toEqual(["Mercury (planet)", "Mercury (element)"]);
+    expect(r.articles[0].url).toBe("https://en.wikipedia.org/wiki/Mercury_(planet)");
+  });
+  it("asks for one article's long text with detail=more, sends a User-Agent, validates the language", async () => {
+    await withFetch(() => lookupWikipedia({}, { query: "Battle of Hastings", detail: "more", lang: "fr" }), ok([page("Bataille d'Hastings", 1, "Texte long")]));
+    expect(ok.last.url.startsWith("https://fr.wikipedia.org/w/api.php?")).toBe(true);
+    expect(ok.last.url).toContain("gsrlimit=1");
+    expect(ok.last.url).not.toContain("exintro");
+    expect(ok.last.init.headers["User-Agent"]).toContain("howardjarvis");
+    await withFetch(() => lookupWikipedia({}, { query: "x", lang: "../evil" }), ok([]));
+    expect(ok.last.url.startsWith("https://en.wikipedia.org/")).toBe(true);
+  });
+  it("explains itself when there is nothing useful or the service fails", async () => {
+    expect((await withFetch(() => lookupWikipedia({}, { query: "zzzz" }), ok([]))).note).toContain("no Wikipedia article");
+    expect((await withFetch(() => lookupWikipedia({}, { query: "Mercury" }), ok([page("Mercury", 1, "x", { disambiguation: "" })]))).note).toContain("ambiguous");
+    expect((await withFetch(() => lookupWikipedia({}, { query: "a" }), async () => new Response("slow down", { status: 429 }))).error).toContain("429");
+    expect((await withFetch(() => lookupWikipedia({}, { query: "a" }), async () => { throw new Error("net"); })).error).toContain("couldn't reach");
+    expect((await lookupWikipedia({}, { query: "  " })).error).toBe("query is required");
   });
 });
