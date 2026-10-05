@@ -219,8 +219,12 @@
   .srow input[type=time] { width:auto; }
   select { background:rgba(2,10,20,.85); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-width:100%; font:inherit; }
   .hint { color:var(--dim); font-size:.78rem; line-height:1.35; }
-  body[data-view="home"] .panel[data-in="settings"], body[data-view="home"] .panel[data-in="spending"] { display:none; }
-  body[data-view="spending"] .panel:not([data-in~="spending"]) { display:none; }
+  body[data-view="home"] .panel[data-in="settings"], body[data-view="home"] .panel[data-in="spending"], body[data-view="home"] .panel[data-in="lists"] { display:none; }
+  body[data-view="spending"] .panel:not([data-in~="spending"]), body[data-view="lists"] .panel:not([data-in~="lists"]) { display:none; }
+  li.done > span:first-of-type { text-decoration:line-through; opacity:.55; }
+  .chk { display:flex; gap:8px; align-items:center; flex:1; cursor:pointer; } .chk input { width:auto; accent-color:var(--accent); }
+  .lname { font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:10px 0 2px; }
+  .prop { border:1px dashed var(--line); border-radius:8px; padding:8px; display:grid; gap:6px; font-size:.86rem; } .prop del { color:var(--dim); }
   .meter { height:8px; border:1px solid var(--line); border-radius:5px; overflow:hidden; margin-top:3px; } .meter > i { display:block; height:100%; background:var(--accent); }
   .brow { display:flex; justify-content:space-between; gap:10px; font-size:.88rem; } .brow small { color:var(--dim); display:block; }
   .bar { flex:1; display:flex; flex-direction:column-reverse; min-width:0; border-radius:3px 3px 0 0; overflow:hidden; } .bar i { display:block; width:100%; }
@@ -299,6 +303,7 @@
     <nav id="nav">
       <button class="nav active" data-view="home">🧭 Command Center</button>
       <button class="nav" data-view="tasks">✅ Tasks <span class="badge" id="bTasks">0</span></button>
+      <button class="nav" data-view="lists">🔔 Reminders &amp; Lists <span class="badge" id="bRem">0</span></button>
       <button class="nav" data-view="memory">🧠 Memory <span class="badge" id="bMem">0</span></button>
       <button class="nav" data-view="chat">💬 Conversations <span class="badge" id="bTurns">0</span></button>
       <button class="nav" data-view="spending">💰 Spending</button>
@@ -407,6 +412,24 @@
       <div class="hint" style="margin-top:8px">These are estimates from list prices (Claude by tokens used, web search per search, OpenAI voice by characters spoken and minutes heard). Your Anthropic and OpenAI dashboards are the source of truth.</div>
     </section>
 
+    <section class="panel" id="p-rem" data-in="lists"><h2>Reminders <span id="remN"></span></h2>
+      <div class="hint" style="margin-bottom:8px">Jarvis sends a notification at the time (checked every five minutes). Just say “remind me at 3 to call the bank” — or add one here.</div>
+      <div class="scroll"><ul id="remItems"></ul></div>
+      <form id="remAdd" style="display:grid;gap:6px">
+        <input id="remWhat" placeholder="Remind me to…" required maxlength="300">
+        <div class="srow"><input type="datetime-local" id="remWhen" required>
+          <select id="remRepeat" aria-label="Repeat"><option value="">once</option><option value="daily">every day</option><option value="weekdays">weekdays</option><option value="weekly">every week</option><option value="monthly">every month</option></select></div>
+        <button>Set reminder</button><span id="remMsg" class="hint"></span>
+      </form>
+    </section>
+
+    <section class="panel" id="p-lists" data-in="lists"><h2>Lists <span id="listN"></span></h2>
+      <div class="hint" style="margin-bottom:8px">Say “add milk and eggs to the shopping list” or tick things off here. Any list name works (“packing”, “hardware store”).</div>
+      <div class="scroll" id="listBox"></div>
+      <form id="listAdd" class="row2"><input id="listName" list="listNames" placeholder="List" value="shopping" maxlength="40" style="max-width:36%"><datalist id="listNames"></datalist><input id="listItem" placeholder="Add an item" required maxlength="200"><button>+</button></form>
+      <div class="srow"><button type="button" class="ghost" id="listClear">Clear ticked items</button><span id="listMsg" class="hint"></span></div>
+    </section>
+
     <section class="panel" id="p-settings" data-in="settings"><h2>Briefings &amp; Reminders</h2>
       <div class="set">
         <label class="srow"><input type="checkbox" id="setBrief"> <span>Morning briefing at</span> <input type="time" id="setBriefTime"></label>
@@ -439,6 +462,8 @@
       <div class="set">
         <label class="srow"><input type="checkbox" id="setSearch"> <span>Let Jarvis search the web for current facts</span></label>
         <div class="hint">Uses Claude's built-in web search. Turn it off to keep every answer to what Jarvis already knows.</div>
+        <div class="srow"><span>Model:</span> <select id="setModelMode"><option value="auto">Automatic — cheap model, smart one for hard questions</option><option value="cheap">Always the cheap model (Haiku)</option><option value="smart">Always the smart model (Sonnet)</option></select></div>
+        <div class="hint">Automatic keeps everyday requests (tasks, lists, reminders, quick questions) on the cheap model, and switches up for explanations, comparisons, writing, photos and long discussions. 🧠 Deep think still uses the strongest model.</div>
         <div class="srow"><b style="font-size:.8rem;letter-spacing:.1em">CALENDAR</b> <span id="calStatus" class="hint"></span></div>
         <input id="icsUrl" type="url" placeholder="Paste your private calendar link (…/basic.ics)" autocomplete="off" spellcheck="false">
         <div class="srow"><button type="button" id="calSave">Connect</button><button type="button" class="ghost" id="calTest">Test</button><button type="button" class="ghost" id="calOff">Disconnect</button></div>
@@ -482,8 +507,11 @@
 
     <section class="panel" id="p-mem" data-in="memory"><h2>What Jarvis remembers <span id="remCount"></span></h2>
       <div class="hint" style="margin-bottom:8px">Facts he keeps about you. He adds these himself when you tell him something lasting; delete any that are wrong.</div>
+      <input id="memFilter" type="search" placeholder="Search what he remembers…" autocomplete="off" style="margin-bottom:6px">
       <div class="scroll"><ul id="remList"></ul></div>
       <form class="row2" id="remForm"><input id="remText" placeholder="Tell Jarvis something to remember" required><button>+</button></form>
+      <div class="srow"><button type="button" class="ghost" id="memTidy">✨ Tidy memory</button><span id="memMsg" class="hint"></span></div>
+      <div id="tidyBox" class="prop" hidden></div>
     </section>
 
     <section class="panel" id="p-memory" data-in="home memory"><h2>Memory Bank <span id="memCount"></span></h2>
@@ -645,6 +673,7 @@ async function loadTasks() { state.tasks = (await api("/tasks")).tasks; renderDa
 async function loadNotes() { state.notes = (await api("/notes")).notes; renderDash(); }
 
 async function loadAll() {
+  loadReminders().catch(() => {});
   const { messages } = await api("/messages");
   convoState.history = messages;
   state.turns = Math.floor(messages.length / 2);
@@ -760,6 +789,7 @@ function setView(v) {
   if (typeof renderLog === "function" && $("log")) renderLog();
   if (v === "settings" && typeof loadSettings === "function") { loadSettings(); loadBackupStatus(); }
   if (v === "spending" && typeof loadSpending === "function") loadSpending();
+  if (v === "lists" && typeof loadReminders === "function") { loadReminders().catch(() => {}); loadLists().catch(() => {}); }
   if (v === "memory" && typeof loadLibrary === "function") { loadLibrary().catch(() => {}); loadMemories().catch(() => {}); }
   document.querySelectorAll(".nav").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
 }
@@ -789,7 +819,7 @@ async function loadSettings() {
     $("setBrief").checked = d.settings.briefing_enabled; $("setBriefTime").value = d.settings.briefing_time;
     $("setRem").checked = d.settings.reminder_enabled; $("setRemTime").value = d.settings.reminder_time;
     $("setTz").textContent = tz; cfg.vapid = d.vapidPublicKey;
-    $("setSearch").checked = d.settings.web_search;
+    $("setSearch").checked = d.settings.web_search; $("setModelMode").value = d.settings.model_mode || "auto";
     $("calStatus").textContent = d.calendar_connected ? "● connected" : "not connected";
     if (d.settings.timezone !== tz) api("/settings", { method: "POST", body: { timezone: tz } }).catch(() => {});   // keep the schedule in the phone's own zone
   } catch (e) { setMsg("setMsg", e.message, true); }
@@ -842,7 +872,7 @@ function fillVoices() {
   const cur = voice.pick && voice.pick();
   $("voiceHint").textContent = list.length ? (cur ? "In use: " + cur.name : "") : "No voices listed yet — they can take a moment to load.";
 }
-const APP_VERSION = "2026-10-05.20";
+const APP_VERSION = "2026-10-06.21";
 $("appVersion").textContent = "App version " + APP_VERSION;
 
 // One tap that tests each link in the voice chain on THIS device and prints the result, so a problem on a
@@ -918,6 +948,10 @@ $("setSearch").onchange = async () => {
   try { await api("/settings", { method: "POST", body: { web_search: $("setSearch").checked } }); setMsg("intelMsg", $("setSearch").checked ? "Web search on." : "Web search off."); }
   catch (e) { setMsg("intelMsg", e.message, true); }
 };
+$("setModelMode").onchange = async () => {
+  try { await api("/settings", { method: "POST", body: { model_mode: $("setModelMode").value } }); setMsg("intelMsg", "Saved."); }
+  catch (e) { setMsg("intelMsg", e.message, true); }
+};
 $("calSave").onclick = async () => {
   const url = $("icsUrl").value.trim(); if (!url) return setMsg("intelMsg", "Paste your calendar link first.", true);
   try {
@@ -936,6 +970,52 @@ $("calOff").onclick = async () => {
   catch (e) { setMsg("intelMsg", e.message, true); }
 };
 
+// ---- Reminders and lists ----
+async function loadReminders() {
+  const { reminders } = await api("/reminders");
+  const ul = $("remItems"); ul.replaceChildren();
+  $("remN").textContent = reminders.length ? String(reminders.length) : ""; $("bRem").textContent = String(reminders.length);
+  if (!reminders.length) ul.append(el("li", { textContent: "No reminders set." }));
+  for (const r of reminders) {
+    const x = el("button", { className: "x", textContent: "×", title: "Cancel" });
+    x.onclick = async () => { await api("/reminders/" + r.id, { method: "DELETE" }); loadReminders(); };
+    ul.append(el("li", {}, el("span", { textContent: r.text }, el("small", { textContent: r.due + (r.repeat !== "once" ? " · repeats " + r.repeat : "") })), x));
+  }
+}
+$("remAdd").onsubmit = async (e) => {
+  e.preventDefault(); setMsg("remMsg", "");
+  try {
+    await api("/reminders", { method: "POST", body: { text: $("remWhat").value, when: $("remWhen").value, repeat: $("remRepeat").value } });
+    $("remWhat").value = ""; setMsg("remMsg", "Set."); loadReminders();
+  } catch (err) { setMsg("remMsg", err.message, true); }
+};
+async function loadLists() {
+  const { lists } = await api("/lists");
+  const box = $("listBox"); box.replaceChildren();
+  const names = Object.keys(lists);
+  $("listN").textContent = names.length ? String(names.reduce((n, k) => n + lists[k].filter((i) => !i.done_at).length, 0)) : "";
+  $("listNames").replaceChildren(...["shopping", ...names.filter((n) => n !== "shopping")].map((n) => el("option", { value: n })));
+  if (!names.length) box.append(el("div", { className: "hint", textContent: "Nothing on any list." }));
+  for (const name of names) {
+    box.append(el("div", { className: "lname", textContent: name }));
+    const ul = el("ul");
+    for (const it of lists[name]) {
+      const cb = el("input", { type: "checkbox" }); cb.checked = !!it.done_at;
+      cb.onchange = async () => { await api("/lists/" + it.id, { method: "PATCH", body: { done: cb.checked } }); loadLists(); };
+      const x = el("button", { className: "x", textContent: "×", title: "Remove" });
+      x.onclick = async () => { await api("/lists/" + it.id, { method: "DELETE" }); loadLists(); };
+      ul.append(el("li", { className: it.done_at ? "done" : "" }, el("label", { className: "chk" }, cb, el("span", { textContent: it.text })), x));
+    }
+    box.append(ul);
+  }
+}
+$("listAdd").onsubmit = async (e) => {
+  e.preventDefault(); setMsg("listMsg", "");
+  try { await api("/lists", { method: "POST", body: { list: $("listName").value, text: $("listItem").value } }); $("listItem").value = ""; loadLists(); }
+  catch (err) { setMsg("listMsg", err.message, true); }
+};
+$("listClear").onclick = async () => { const r = await api("/lists/clear", { method: "POST", body: {} }); setMsg("listMsg", r.removed ? `Cleared ${r.removed}.` : "Nothing ticked."); loadLists(); };
+
 // ---- Library + memories (Memory view) ----
 const kb = (n) => (n < 1024 ? n + " chars" : Math.round(n / 1000) + "k chars");
 async function loadLibrary() {
@@ -949,17 +1029,45 @@ async function loadLibrary() {
     ul.append(el("li", {}, el("span", { textContent: d.title }, el("small", { textContent: `${d.source} · ${kb(d.chars)}` })), x));
   }
 }
-async function loadMemories() {
-  const { memories } = await api("/memories");
+let memAll = [];
+async function loadMemories() { memAll = (await api("/memories")).memories; renderMemories(); }
+function renderMemories() {
+  const q = $("memFilter").value.trim().toLowerCase();
   const ul = $("remList"); ul.replaceChildren();
-  $("remCount").textContent = memories.length ? String(memories.length) : "";
-  if (!memories.length) ul.append(el("li", { textContent: "Nothing yet — tell Jarvis about yourself." }));
-  for (const m of memories) {
+  $("remCount").textContent = memAll.length ? String(memAll.length) : "";
+  const shown = q ? memAll.filter((m) => m.text.toLowerCase().includes(q)) : memAll;
+  if (!shown.length) ul.append(el("li", { textContent: memAll.length ? "No match." : "Nothing yet — tell Jarvis about yourself." }));
+  for (const m of shown) {
+    const ed = el("button", { className: "x", textContent: "✎", title: "Edit" });
+    ed.onclick = async () => {
+      const t = prompt("Correct this memory:", m.text);
+      if (t === null || !t.trim() || t.trim() === m.text) return;
+      try { await api("/memories/" + m.id, { method: "PATCH", body: { text: t } }); loadMemories(); } catch (e) { $("chatErr").textContent = e.message; }
+    };
     const x = el("button", { className: "x", textContent: "×", title: "Forget" });
     x.onclick = async () => { await api("/memories/" + m.id, { method: "DELETE" }); loadMemories(); };
-    ul.append(el("li", {}, el("span", { textContent: m.text }), x));
+    ul.append(el("li", {}, el("span", { textContent: m.text }), ed, x));
   }
 }
+$("memFilter").oninput = renderMemories;
+$("memTidy").onclick = async () => {
+  setMsg("memMsg", "Reading through his memories…"); $("tidyBox").hidden = true; $("memTidy").disabled = true;
+  try {
+    const r = await api("/memories/tidy", { method: "POST", body: {} });
+    const p = r.proposal, n = p.merge.length + p.update.length + p.delete.length;
+    if (!n) { setMsg("memMsg", r.note || "Nothing needs tidying, Sir."); return; }
+    setMsg("memMsg", "");
+    const box = $("tidyBox"); box.replaceChildren(el("b", { textContent: `Suggested changes (${n}) — nothing happens until you approve:` }));
+    for (const m of p.merge) box.append(el("div", {}, el("span", { textContent: "Merge: " }), el("del", { textContent: m.was.join(" + ") }), el("span", { textContent: " → " + m.text })));
+    for (const u of p.update) box.append(el("div", {}, el("span", { textContent: "Correct: " }), el("del", { textContent: u.was }), el("span", { textContent: " → " + u.text })));
+    for (const d of p.delete) box.append(el("div", {}, el("span", { textContent: "Forget: " }), el("del", { textContent: d.was }), el("small", { textContent: d.reason ? "  (" + d.reason + ")" : "" })));
+    const ok = el("button", { textContent: "Apply all" }), no = el("button", { className: "ghost", textContent: "Dismiss" });
+    ok.onclick = async () => { ok.disabled = true; try { const a = await api("/memories/tidy/apply", { method: "POST", body: { proposal: p } }); box.hidden = true; setMsg("memMsg", `Done: ${a.merged} merged, ${a.updated} corrected, ${a.deleted} forgotten.`); loadMemories(); } catch (e) { setMsg("memMsg", e.message, true); } };
+    no.onclick = () => { box.hidden = true; };
+    box.append(el("div", { className: "srow" }, ok, no)); box.hidden = false;
+  } catch (e) { setMsg("memMsg", e.message, true); }
+  finally { $("memTidy").disabled = false; }
+};
 $("remForm").onsubmit = async (e) => {
   e.preventDefault();
   try { await api("/memories", { method: "POST", body: { text: $("remText").value } }); $("remText").value = ""; loadMemories(); }
@@ -1114,7 +1222,7 @@ $("chatForm").onsubmit = async (e) => {
     addMsg("assistant", r.answer, undefined, { sources: r.sources, spoken: r.spoken });
     if (r.degraded) $("chatErr").textContent = "Heads-up: the advanced features were unavailable just now, so that was a plain answer.";
     state.chatOk = true; state.turns += 1; renderDash();
-    if (r.refresh) { loadTasks(); loadNotes(); }
+    if (r.refresh) { loadTasks(); loadNotes(); loadReminders().catch(() => {}); loadLists().catch(() => {}); loadMemories().catch(() => {}); }
     if (voice.speakAlways || viaVoice) { try { voice.say(r.spoken || plainForSpeech(r.answer), () => voice.resume(), (msg) => { if (/^held/.test(msg)) $("chatErr").textContent = "Tap anywhere to hear Jarvis — your phone needs a tap before it plays sound."; else if (/^(blocked|error)/.test(msg)) $("chatErr").textContent = "Jarvis couldn't speak automatically — tap the 🔊 on his reply to hear it."; else if (/^speaking/.test(msg)) $("chatErr").textContent = ""; }); speaking = true; } catch (e2) { console.error("speech failed", e2); orb.set("idle"); } }
     if (!speaking) orb.set("idle");
   } catch (err) { $("chatErr").textContent = err.message; state.chatOk = false; renderDash(); orb.set("idle"); }

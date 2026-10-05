@@ -12,6 +12,7 @@ import { normalizeIcsUrl } from "./ics.js";
 import { getCalendar } from "./calendar.js";
 import { recordUsage, claudeEntries } from "./usage.js";
 import { snapshot } from "./backup.js";
+import { fireDueReminders } from "./reminders.js";
 
 const enc = new TextEncoder();
 const json = (data, status = 200) =>
@@ -26,9 +27,9 @@ export const DEFAULTS = {
   briefing_enabled: "1", briefing_time: "07:30",
   reminder_enabled: "1", reminder_time: "17:00",
   timezone: "UTC", last_briefing: "", last_reminder: "",
-  web_search: "1", ics_url: "", monthly_budget: "", last_backup: "",
+  web_search: "1", ics_url: "", monthly_budget: "", last_backup: "", model_mode: "auto",
 };
-const PUBLIC_KEYS = ["briefing_enabled", "briefing_time", "reminder_enabled", "reminder_time", "timezone", "web_search", "monthly_budget"];
+const PUBLIC_KEYS = ["briefing_enabled", "briefing_time", "reminder_enabled", "reminder_time", "timezone", "web_search", "monthly_budget", "model_mode"];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function validTimezone(tz) {
@@ -85,6 +86,7 @@ export async function applySettings(env, body) {
   for (const k of ["briefing_time", "reminder_time"]) {
     if (k in body) { if (!TIME_RE.test(body[k])) return { error: `${k} must be HH:MM` }; out[k] = body[k]; }
   }
+  if ("model_mode" in body) { if (!["auto", "cheap", "smart"].includes(body.model_mode)) return { error: "model_mode must be auto, cheap or smart" }; out.model_mode = body.model_mode; }
   if ("monthly_budget" in body) {
     const raw = body.monthly_budget;
     if (raw === "" || raw === null) out.monthly_budget = "";
@@ -253,6 +255,14 @@ export async function runTick(env, now = new Date()) {
     const c = categorize(results, date);
     if (c.today.length) { await deliver(env, { title: "Due today", text: plainReminder(c), emoji: "⏰", kind: "reminder" }); done.push("reminder"); }
   }
+  // Timed reminders: everything due since the last tick goes out as one notification.
+  try {
+    const fired = await fireDueReminders(env, now.getTime());
+    if (fired.length) {
+      await deliver(env, { title: "Reminder", text: fired.length === 1 ? `Sir, a reminder: ${fired[0]}` : "Sir, reminders:\n" + fired.map((t) => `• ${t}`).join("\n"), emoji: "🔔", kind: "reminder" });
+      done.push("reminders");
+    }
+  } catch (err) { console.error("reminders failed", err); }
   // Weekly automatic backup (only when backup storage is connected), after 03:00 local time.
   if (env.BACKUPS && localParts(now, s.timezone).time >= "03:00" && (!s.last_backup || dayDiff(date, s.last_backup) >= 7)) {
     await put(env, "last_backup", date);

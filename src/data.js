@@ -64,3 +64,10 @@ export async function deleteMemory(env, id) {
   const res = await env.DB.prepare("DELETE FROM memories WHERE id = ?").bind(clean(id, 40)).run();
   return res.meta.changes ? { ok: true } : { error: "no such memory" };
 }
+
+export async function updateMemory(env, { id, text }) {
+  text = clean(text, 500);
+  if (!text) return { error: "text is required" };
+  const res = await env.DB.prepare("UPDATE memories SET text = ? WHERE id = ?").bind(text, clean(id, 40)).run();
+  return res.meta.changes ? { ok: true, id, text } : { error: "no such memory" };
+}

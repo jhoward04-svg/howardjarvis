@@ -1,6 +1,7 @@
 // The assistant: system prompt, tools, model selection and the tool loop.
 //
-// Normal questions use CLAUDE_MODEL (default Sonnet 5.5). "Deep think" uses CLAUDE_DEEP_MODEL
+// Normal questions go to the cheap model (CLAUDE_MODEL, Haiku) unless they look hard, then to CLAUDE_SMART_MODEL (default
+// Sonnet 5.5) — see chooseModel; the model_mode setting can pin either. (Previously always Sonnet 5.5.) "Deep think" uses CLAUDE_DEEP_MODEL
 // (default Opus 5.5) at higher effort and a larger output budget. Claude's web search / web fetch run
 // on Anthropic's side; everything else (tasks, notes, memory, library, calendar, calculator) are our tools.
 //
@@ -8,7 +9,9 @@
 // feature not enabled on the account, a model name not available…) we remember it for a few minutes and
 // retry in a plain, safe shape so Jarvis keeps answering instead of going silent.
 
-import { addTask, setTaskDone, addNote, addMemory, deleteMemory, clean } from "./data.js";
+import { addTask, setTaskDone, addNote, addMemory, deleteMemory, updateMemory, clean } from "./data.js";
+import { addReminder, listReminders, cancelReminder } from "./reminders.js";
+import { addItems, getLists, checkOff } from "./lists.js";
 import { calculate } from "./calc.js";
 import { addDocument, searchLibrary } from "./library.js";
 import { getCalendar } from "./calendar.js";
@@ -39,6 +42,20 @@ export const PHOTO_PROMPT =
 // ---------- models & request shape ----------
 export const pickModel = (env, deep) => (deep ? env.CLAUDE_DEEP_MODEL || "claude-opus-5-5" : env.CLAUDE_MODEL || "claude-sonnet-5-5");
 
+// Cheap by default: simple chat and housekeeping go to the cheap model, anything that looks like real thinking goes to the smart one.
+const SMART_RE = /\b(explain|compare|comparison|analy[sz]e|analysis|plan|strategy|pros and cons|trade-?offs?|write|draft|essay|summari[sz]e|translate|debug|code|script|why|how (?:do|does|did|can|could|should|would|to)|differences?|recommend|research|step[- ]by[- ]step|in detail|detailed|investigate|evaluate|review|brainstorm|optimi[sz]e|equation|proof|legal|contract|taxes|medical|diagnos|invest)\b/i;
+export function needsSmart(prompt, { image = false, lastAnswerLength = 0 } = {}) {
+  const t = String(prompt || "");
+  return image || t.length > 350 || SMART_RE.test(t) || lastAnswerLength > 900;   // a long previous answer means we're mid-discussion
+}
+export function chooseModel(env, { deep, prompt, image, mode, lastAnswerLength }) {
+  if (deep) return pickModel(env, true);
+  const cheap = pickModel(env, false), smart = env.CLAUDE_SMART_MODEL || "claude-sonnet-5-5";
+  if (mode === "cheap") return cheap;
+  if (mode === "smart") return smart;
+  return needsSmart(prompt, { image: !!image, lastAnswerLength }) ? smart : cheap;
+}
+
 const BUDGET_MS = 85_000;             // Cloudflare drops browser connections after ~100 s, so stay well inside it
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 let degradedUntil = 0;                // per-instance memory of "the full request shape was refused"
@@ -60,6 +77,19 @@ export const CLIENT_TOOLS = [
     input_schema: { type: "object", properties: { fact: { type: "string" } }, required: ["fact"] } },
   { name: "forget", description: "Delete a remembered fact, by its id from the memories list in the context. Use when the owner asks you to forget something or a memory is wrong.",
     input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
+  { name: "update_memory", description: "Correct a remembered fact in place, by its id from the memories list, when it has changed or was wrong (better than adding a second, conflicting memory).",
+    input_schema: { type: "object", properties: { id: { type: "string" }, text: { type: "string", description: "the corrected fact, one short sentence" } }, required: ["id", "text"] } },
+  { name: "set_reminder", description: "Remind the owner at a specific time with a push notification on his devices. Give EITHER in_minutes (for \"in 20 minutes\") OR when as a LOCAL date and time YYYY-MM-DDTHH:MM, worked out from the local time given with his message. Optional repeat: daily, weekdays, weekly or monthly (same clock time). Use for anything time-specific; use add_task for to-dos without a time.",
+    input_schema: { type: "object", properties: { text: { type: "string", description: "what to remind him of, phrased as the notification should read" }, when: { type: "string" }, in_minutes: { type: "integer" }, repeat: { type: "string", enum: ["daily", "weekdays", "weekly", "monthly"] } }, required: ["text"] } },
+  { name: "list_reminders", description: "List his upcoming reminders (with ids).", input_schema: { type: "object", properties: {} } },
+  { name: "cancel_reminder", description: "Cancel a reminder, by id or by words from its text.",
+    input_schema: { type: "object", properties: { id: { type: "string" }, text: { type: "string" } } } },
+  { name: "add_to_list", description: "Add items to one of his lists. The default list is \"shopping\"; any other name (\"packing\", \"hardware store\") creates that list.",
+    input_schema: { type: "object", properties: { list: { type: "string" }, items: { type: "array", items: { type: "string" } } }, required: ["items"] } },
+  { name: "show_list", description: "Read a list back (default \"shopping\"); omit list to see all lists.",
+    input_schema: { type: "object", properties: { list: { type: "string" } } } },
+  { name: "check_off", description: "Tick items off a list as bought/done (or remove them entirely with remove: true), matching by their words.",
+    input_schema: { type: "object", properties: { list: { type: "string" }, items: { type: "array", items: { type: "string" } }, remove: { type: "boolean" } }, required: ["items"] } },
   { name: "search_library", description: "Search the owner's saved documents (contracts, manuals, receipts, notes of record). Returns the best-matching excerpts with the document title. Use whenever a question may be answered by something he has saved.",
     input_schema: { type: "object", properties: { query: { type: "string", description: "key words to look for" } }, required: ["query"] } },
   { name: "save_document", description: "Save text to the owner's library so it can be searched later (for example text transcribed from a photo). Only when he asks you to save it.",
@@ -114,6 +144,9 @@ export function buildSystemPrompt(tasks, notes, today, extra = {}) {
     calendar
       ? "- Calendar: his calendar is connected. For anything about his schedule, appointments or availability, call get_calendar — never guess."
       : "- Calendar: none is connected. If he asks about his schedule, say he can add a calendar link in Settings.",
+    "- Reminders: when he wants to be reminded at a time (\"remind me at 3\", \"in 20 minutes\", \"every Monday morning\"), call set_reminder — he gets a push notification at that moment (checked every five minutes). Work out the local date and time from the local time sent with his message. For a date-only to-do use add_task instead. Confirm the time you set, in plain words.",
+    "- Lists: \"shopping list\" is the default list. Use add_to_list, show_list and check_off; confirm what changed.",
+    "- Memory: if a remembered fact has changed, use update_memory with its id rather than adding a contradicting one.",
     "- Tasks and notes: confirm in plain words what you did. Never claim to have done something you didn't call a tool for.",
     "- Photos: read them carefully — transcribe the relevant text, identify what it is and report the key details (for a receipt, business card, label or document, the main fields). Say plainly if the image is unclear. Only save notes, tasks or library entries from a photo when he asks; otherwise offer.",
     "- Resolve relative dates (\"tomorrow\", \"Friday\") against today's date.",
@@ -166,6 +199,13 @@ export async function runTool(env, name, input) {
     case "add_note": return addNote(env, i);
     case "remember": return addMemory(env, i);
     case "forget": return deleteMemory(env, i.id);
+    case "update_memory": return updateMemory(env, i);
+    case "set_reminder": return addReminder(env, i);
+    case "list_reminders": return { reminders: await listReminders(env) };
+    case "cancel_reminder": return cancelReminder(env, i);
+    case "add_to_list": return addItems(env, i);
+    case "show_list": return getLists(env, i.list);
+    case "check_off": return checkOff(env, i);
     case "search_library": return searchLibrary(env, clean(i.query, 200));
     case "save_document": return addDocument(env, { title: i.title, text: i.text, source: "assistant" });
     case "get_calendar": return getCalendar(env, { daysBack: i.days_back, daysAhead: i.days_ahead ?? 7 });
@@ -173,7 +213,7 @@ export async function runTool(env, name, input) {
     default: return { error: `unknown tool ${name}` };
   }
 }
-const TOOL_WRITES = new Set(["add_task", "complete_task", "add_note", "remember", "forget", "save_document"]);
+const TOOL_WRITES = new Set(["add_task", "complete_task", "add_note", "remember", "forget", "update_memory", "set_reminder", "cancel_reminder", "add_to_list", "check_off", "save_document"]);
 
 // ---------- calling Claude ----------
 class ApiError extends Error { constructor(status, text) { super(`Claude API ${status}: ${text.slice(0, 300)}`); this.status = status; } }
@@ -190,7 +230,7 @@ async function post(env, { body, betas }, timeoutMs) {
 async function callClaude(env, args, deadline) {
   const left = () => Math.max(1000, deadline - Date.now());
   const attempt = (full, model) => post(env, buildRequest({ ...args, model, full }), Math.min(left(), 80_000));
-  const wanted = pickModel(env, args.deep);
+  const wanted = args.model || pickModel(env, args.deep);
   const retryable = (e) => e instanceof ApiError && (e.status === 429 || e.status >= 500);
   const tryOnce = async (full, model) => {
     try { return await attempt(full, model); }
@@ -205,23 +245,25 @@ async function callClaude(env, args, deadline) {
       degradedUntil = Date.now() + 10 * 60_000;
     }
   }
-  return { data: await tryOnce(false, pickModel(env, false)), degraded: true };
+  return { data: await tryOnce(false, args.deep ? pickModel(env, false) : wanted), degraded: true };
 }
 
 // ---------- the conversation loop ----------
-export async function runChat(env, { prompt, image, deep, history, ctx }) {
+export async function runChat(env, { prompt, image, deep, history, ctx, modelMode = "auto" }) {
   const system = buildSystemPrompt(ctx.tasks, ctx.notes, ctx.today, { ...ctx.extra, deep });
   const messages = [...normalizeHistory(history), { role: "user", content: buildUserContent(prompt, image) }];
+  const lastAssistant = [...(history || [])].reverse().find((m) => m.role === "assistant");
+  const model = chooseModel(env, { deep, prompt, image, mode: modelMode, lastAnswerLength: lastAssistant ? String(lastAssistant.content || "").length : 0 });
   const deadline = Date.now() + BUDGET_MS;
   let refresh = false, degraded = false, sources = [], final = null;
   const spent = [["chats", 1]];
   if (deep) spent.push(["deep_chats", 1]);
 
   for (let step = 0; step < 8; step++) {
-    const r = await callClaude(env, { system, messages, deep, search: ctx.extra.search }, deadline);
+    const r = await callClaude(env, { system, messages, deep, model, search: ctx.extra.search }, deadline);
     const data = r.data;
     degraded = degraded || r.degraded;
-    spent.push(...claudeEntries(data.model || pickModel(env, deep && !r.degraded), data.usage));
+    spent.push(...claudeEntries(data.model || model, data.usage));
     const content = data.content || [];
     for (const s of extractSources(content)) if (!sources.some((x) => x.url === s.url)) sources.push(s);
 
@@ -255,7 +297,7 @@ export async function runChat(env, { prompt, image, deep, history, ctx }) {
   if (!text) text = refresh ? "Done." : "I didn't get a response — try again.";
 
   const { answer, spoken } = splitSpoken(text);
-  return { answer, spoken, sources, refresh, degraded, deep: !!deep };
+  return { answer, spoken, sources, refresh, degraded, deep: !!deep, model: (final && final.model) || model };
 }
 
 // ---------- PDF → text (for the library) ----------
@@ -275,4 +317,12 @@ export async function extractPdfText(env, data) {
   const out = await post(env, { body, betas: [] }, BUDGET_MS);
   await recordUsage(env, claudeEntries(out.model || body.model, out.usage));
   return (out.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+}
+
+// One plain question to Claude, no tools — used for housekeeping such as tidying memory.
+export async function askClaude(env, { system, user, model, maxTokens = 1500 }) {
+  const body = { model: model || env.CLAUDE_SMART_MODEL || "claude-sonnet-5-5", max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] };
+  const data = await post(env, { body, betas: [] }, 40_000);
+  await recordUsage(env, claudeEntries(data.model || body.model, data.usage));
+  return (data.content || []).filter((b) => b.type === "text").map((b) => b.text || "").join("").trim();
 }

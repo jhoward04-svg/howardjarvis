@@ -102,6 +102,9 @@ describe("calendar feed", () => {
   });
 });
 
+import { nextOccurrence, parseLocal } from "../src/reminders.js";
+import { sanitizeProposal } from "../src/memtidy.js";
+import { needsSmart, chooseModel } from "../src/brain.js";
 import { splitSpoken, extractSources, normalizeHistory, buildRequest, buildSystemPrompt, CLIENT_TOOLS, SERVER_TOOLS, pickModel, validPdfBase64 } from "../src/brain.js";
 import { chunkText, ftsQuery } from "../src/library.js";
 
@@ -297,5 +300,65 @@ describe("wake word", () => {
   it("fuzzy matching is tight enough to avoid ordinary words", () => {
     for (const w of ["service", "harvest", "travis", "jarring", "jargon", "marvels"]) expect(Wake.isName(w)).toBe(false);
     expect(Wake.isName("Jarvis")).toBe(true);
+  });
+});
+
+describe("reminders", () => {
+  const NY = "America/New_York";
+  it("parses local date-times strictly", () => {
+    expect(parseLocal("2026-10-06T15:00")).toEqual({ y: 2026, mo: 10, d: 6, h: 15, mi: 0 });
+    expect(parseLocal("2026-13-06T15:00")).toBeNull();
+    expect(parseLocal("tomorrow")).toBeNull();
+  });
+  it("repeats at the same local clock time, across daylight saving", () => {
+    const due = Date.UTC(2026, 9, 31, 12, 0);                                  // Sat 31 Oct 08:00 EDT
+    const next = nextOccurrence(due, "daily", NY, due + 1000);                  // Sun 1 Nov 08:00 — clocks went back at 2 AM, so EST
+    expect(new Date(next).toISOString()).toBe("2026-11-01T13:00:00.000Z");
+    const after = nextOccurrence(next, "daily", NY, next + 1000);               // Mon 2 Nov 08:00 EST
+    expect(new Date(after).toISOString()).toBe("2026-11-02T13:00:00.000Z");
+  });
+  it("skips weekends, steps weeks, and clamps month ends", () => {
+    const fri = Date.UTC(2026, 9, 9, 13, 0);                                    // Fri 9 Oct 09:00 EDT
+    expect(new Date(nextOccurrence(fri, "weekdays", NY, fri + 1000)).toISOString()).toBe("2026-10-12T13:00:00.000Z");
+    expect(new Date(nextOccurrence(fri, "weekly", NY, fri + 1000)).toISOString()).toBe("2026-10-16T13:00:00.000Z");
+    const jan31 = Date.UTC(2027, 0, 31, 14, 0);
+    expect(new Date(nextOccurrence(jan31, "monthly", NY, jan31 + 1000)).toISOString()).toBe("2027-02-28T14:00:00.000Z");
+  });
+  it("catches up if the worker was down for days", () => {
+    const due = Date.UTC(2026, 9, 1, 12, 0);
+    expect(nextOccurrence(due, "daily", NY, Date.UTC(2026, 9, 5, 0, 0))).toBe(Date.UTC(2026, 9, 5, 12, 0));
+  });
+});
+
+describe("model routing", () => {
+  const env = { CLAUDE_MODEL: "claude-haiku-4-5" };
+  it("keeps everyday requests on the cheap model and escalates hard ones", () => {
+    for (const q of ["add milk to the shopping list", "remind me at 3 to call the bank", "what's on my calendar today", "thanks", "what time is it"]) expect(needsSmart(q)).toBe(false);
+    for (const q of ["explain how mortgages work", "compare these two phones", "Draft an email to my landlord", "how do I fix this?"]) expect(needsSmart(q)).toBe(true);
+    expect(needsSmart("ok", { image: true })).toBe(true);
+    expect(needsSmart("and then?", { lastAnswerLength: 1500 })).toBe(true);
+    expect(needsSmart("x".repeat(400))).toBe(true);
+  });
+  it("respects pinned modes and deep think", () => {
+    expect(chooseModel(env, { prompt: "hi", mode: "auto" })).toBe("claude-haiku-4-5");
+    expect(chooseModel(env, { prompt: "explain", mode: "auto" })).toBe("claude-sonnet-5-5");
+    expect(chooseModel(env, { prompt: "explain", mode: "cheap" })).toBe("claude-haiku-4-5");
+    expect(chooseModel(env, { prompt: "hi", mode: "smart" })).toBe("claude-sonnet-5-5");
+    expect(chooseModel(env, { prompt: "hi", mode: "cheap", deep: true })).toBe("claude-opus-5-5");
+  });
+});
+
+describe("memory tidy proposals", () => {
+  const mem = [{ id: "a", text: "A" }, { id: "b", text: "B" }, { id: "c", text: "C" }, { id: "d", text: "D" }];
+  it("keeps only sound parts: real ids, no overlaps, no empty text", () => {
+    const p = sanitizeProposal({
+      merge: [{ ids: ["a", "b", "zzz"], text: "AB" }, { ids: ["a", "c"], text: "overlaps a" }, { ids: ["c"], text: "one id only" }],
+      update: [{ id: "c", text: "C2" }, { id: "d", text: "" }],
+      delete: [{ id: "d", reason: "trivia" }, { id: "ghost" }],
+    }, mem);
+    expect(p.merge).toHaveLength(1); expect(p.merge[0].ids).toEqual(["a", "b"]);
+    expect(p.update).toEqual([{ id: "c", text: "C2", was: "C" }]);
+    expect(p.delete).toHaveLength(1);
+    expect(sanitizeProposal("garbage", mem)).toEqual({ merge: [], update: [], delete: [] });
   });
 });

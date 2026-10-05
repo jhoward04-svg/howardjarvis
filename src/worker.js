@@ -5,10 +5,13 @@
 
 import { safeTz } from "./ics.js";
 import { handleNotifyApi, runTick } from "./notify.js";
-import { clean, listTasks, addTask, setTaskDone, listNotes, addNote, listMemories, addMemory, deleteMemory } from "./data.js";
+import { clean, listTasks, addTask, setTaskDone, listNotes, addNote, listMemories, addMemory, deleteMemory, updateMemory } from "./data.js";
 import { parseImage, buildUserContent, buildSystemPrompt, runChat, PHOTO_PROMPT, extractPdfText, validPdfBase64 } from "./brain.js";
 import { addDocument, listDocuments, deleteDocument, libraryCount } from "./library.js";
 import { getSettings } from "./notify.js";
+import { addReminder, listReminders, cancelReminder } from "./reminders.js";
+import { addItems, getLists, setItemDone, deleteItem, clearDone } from "./lists.js";
+import { proposeTidy, applyTidy } from "./memtidy.js";
 import { getCalendar } from "./calendar.js";
 import { speak, transcribe, TTS_VOICES } from "./voice.js";
 import { usageReport, budgetState, resetSpendCache } from "./usage.js";
@@ -161,14 +164,14 @@ async function chat(request, env) {
       tasks: tasks.filter((t) => !t.done_at), notes, today: clock.date,
       extra: { memories, libraryDocs: docs, calendar: !!settings.ics_url, search: settings.web_search !== "0" },
     };
-    const r = await runChat(env, { prompt: (text || PHOTO_PROMPT) + `\n\n(Local time now: ${clock.label}.)`, image, deep, history: past.reverse(), ctx });
+    const r = await runChat(env, { prompt: (text || PHOTO_PROMPT) + `\n\n(Local time now: ${clock.label}.)`, image, deep, history: past.reverse(), ctx, modelMode: settings.model_mode });
     const answer = r.answer + deepNote;
     const stored = answer + (r.sources.length ? "\n\nSources:\n" + r.sources.map((x) => `- ${x.title} ${x.url}`).join("\n") : "");
     await env.DB.batch([
       env.DB.prepare("INSERT INTO messages (role, content) VALUES ('user', ?)").bind(image ? `📷 [photo] ${text}`.trim() : text),
       env.DB.prepare("INSERT INTO messages (role, content) VALUES ('assistant', ?)").bind(stored),
     ]);
-    return json({ answer, spoken: r.spoken, sources: r.sources, refresh: r.refresh, degraded: r.degraded, deep: r.deep });
+    return json({ answer, spoken: r.spoken, sources: r.sources, refresh: r.refresh, degraded: r.degraded, deep: r.deep, model: r.model });
   } catch (err) {
     console.error("chat failed", err);
     return json({ error: "temporarily unavailable — try again in a moment" }, 502);
@@ -236,8 +239,29 @@ async function handleApi(request, env, url) {
     const r = await addMemory(env, { fact: (await request.json().catch(() => ({}))).text });
     return json(r, r.error ? 400 : 201);
   }
+  if (pathname === "/api/memories/tidy" && method === "POST") {
+    if (!env.ANTHROPIC_API_KEY) return json({ error: "not configured: set ANTHROPIC_API_KEY" }, 503);
+    try { const r = await proposeTidy(env); return json(r, r.error ? 502 : 200); }
+    catch (err) { console.error("tidy failed", err); return json({ error: "couldn't reach Claude just now — try again shortly" }, 502); }
+  }
+  if (pathname === "/api/memories/tidy/apply" && method === "POST") return json(await applyTidy(env, (await request.json().catch(() => ({}))).proposal));
   const memMatch = pathname.match(/^\/api\/memories\/([\w-]+)$/);
   if (memMatch && method === "DELETE") return json(await deleteMemory(env, memMatch[1]));
+  if (memMatch && method === "PATCH") { const r = await updateMemory(env, { id: memMatch[1], text: (await request.json().catch(() => ({}))).text }); return json(r, r.error ? 400 : 200); }
+
+  // reminders
+  if (pathname === "/api/reminders" && method === "GET") return json({ reminders: await listReminders(env) });
+  if (pathname === "/api/reminders" && method === "POST") { const r = await addReminder(env, await request.json().catch(() => ({}))); return json(r, r.error ? 400 : 201); }
+  const remMatch = pathname.match(/^\/api\/reminders\/([\w-]+)$/);
+  if (remMatch && method === "DELETE") return json(await cancelReminder(env, { id: remMatch[1] }));
+
+  // lists (shopping etc.)
+  if (pathname === "/api/lists" && method === "GET") return json(await getLists(env));
+  if (pathname === "/api/lists" && method === "POST") { const b = await request.json().catch(() => ({})); const r = await addItems(env, { list: b.list, items: [b.text] }); return json(r, r.error ? 400 : 201); }
+  if (pathname === "/api/lists/clear" && method === "POST") return json(await clearDone(env, (await request.json().catch(() => ({}))).list));
+  const itemMatch = pathname.match(/^\/api\/lists\/([\w-]+)$/);
+  if (itemMatch && method === "PATCH") { const r = await setItemDone(env, itemMatch[1], (await request.json().catch(() => ({}))).done !== false); return json(r, r.error ? 404 : 200); }
+  if (itemMatch && method === "DELETE") { const r = await deleteItem(env, itemMatch[1]); return json(r, r.error ? 404 : 200); }
 
   // document library
   if (pathname === "/api/library" && method === "GET") return json({ documents: await listDocuments(env) });

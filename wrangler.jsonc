@@ -14,10 +14,11 @@
   ],
 
   // Every 10 minutes: src/notify.js decides whether a briefing or reminder is due.
-  "triggers": { "crons": ["*/10 * * * *"] },
+  "triggers": { "crons": ["*/5 * * * *"] },
 
   "vars": {
-    "CLAUDE_MODEL": "claude-haiku-4-5"
+    "CLAUDE_MODEL": "claude-haiku-4-5",
+    "CLAUDE_SMART_MODEL": "claude-sonnet-5-5"
   },
 
   // Create with: npx wrangler d1 create howardjarvis

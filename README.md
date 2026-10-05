@@ -113,3 +113,19 @@ Settings → **Backup & restore**:
 ## Wake word
 
 `public/wake.js` decides when Jarvis is being addressed. "Jarvis" counts at the start of a sentence (optionally after "hey/ok…") or at the very end, tolerates common mishearings, and ignores the name mid-sentence ("I told Jarvis…"). "Thanks, that's all" or "stop listening" stands him down; filler such as "um" is ignored while engaged.
+
+## Reminders
+
+Say "remind me at 3 to call the bank", "in 20 minutes…" or "every Monday at 7:30 put out the bins" (repeats: daily, weekdays, weekly, monthly), or use **Reminders & Lists** in the sidebar. The cron tick runs every five minutes (`wrangler.jsonc`), so a reminder arrives within five minutes of its time, as a push notification and a line in the conversation. Times are stored in UTC and read in your time zone. Table: `reminders` (migration `0005`).
+
+## Lists
+
+"Add milk and eggs to the shopping list", "tick off the eggs", "what's on my packing list?". Any list name works; tick items on screen too. Table: `list_items`.
+
+## Cheaper by default
+
+`model_mode` (Settings → Intelligence): **automatic** keeps everyday requests on the cheap model (`CLAUDE_MODEL`, Haiku) and uses `CLAUDE_SMART_MODEL` (Sonnet 5.5) for explanations, comparisons, writing, photos and long discussions (the rules are `needsSmart` in `src/brain.js`); or pin either. Deep think is unchanged. The system prompt is marked cacheable and only the last 8 messages are resent.
+
+## Memory
+
+Edit or search memories on the Memory page. **✨ Tidy memory** has Claude propose merges, corrections and removals; nothing changes until you press *Apply all*. Jarvis can also correct a memory in place (`update_memory`).

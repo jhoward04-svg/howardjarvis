@@ -1,7 +1,7 @@
 // Minimal service worker: makes the app installable and lets the shell open instantly.
 // It never touches /api/* (chat, tasks and notes always go to the network, so nothing
 // private is cached) and uses network-first for the page so a new deploy shows up at once.
-const CACHE = "jarvis-shell-v4";
+const CACHE = "jarvis-shell-v5";
 const SHELL = ["/", "/wake.js", "/jarvis-orb.png", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
