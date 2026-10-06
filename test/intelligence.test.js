@@ -104,7 +104,7 @@ describe("calendar feed", () => {
 
 import { nextOccurrence, parseLocal } from "../src/reminders.js";
 import { sanitizeProposal } from "../src/memtidy.js";
-import { lookupWikipedia } from "../src/wiki.js";
+import { lookupWikipedia, lookupWiktionary, wiktionarySection } from "../src/wiki.js";
 import { needsSmart, chooseModel } from "../src/brain.js";
 import { splitSpoken, extractSources, normalizeHistory, buildRequest, buildSystemPrompt, CLIENT_TOOLS, SERVER_TOOLS, pickModel, validPdfBase64 } from "../src/brain.js";
 import { chunkText, ftsQuery } from "../src/library.js";
@@ -393,5 +393,29 @@ describe("wikipedia lookup", () => {
     expect((await withFetch(() => lookupWikipedia({}, { query: "a" }), async () => new Response("slow down", { status: 429 }))).error).toContain("429");
     expect((await withFetch(() => lookupWikipedia({}, { query: "a" }), async () => { throw new Error("net"); })).error).toContain("couldn't reach");
     expect((await lookupWikipedia({}, { query: "  " })).error).toBe("query is required");
+  });
+});
+
+describe("wiktionary lookup", () => {
+  const ENTRY = "\n== English ==\n\n\n=== Etymology ===\n\nFrom Serendip +‎ -ity.\n\n\n=== Noun ===\nserendipity (plural serendipities)\n\nThe phenomenon of making an unplanned, fortunate discovery.\n1754, Horace Walpole, The Letters, vol. 2\nThis discovery, indeed, is almost...\n\n== French ==\n\n=== Noun ===\nsérendipité f\nserendipity\n";
+  const withFetch = async (fn, impl) => { const real = globalThis.fetch; globalThis.fetch = impl; try { return await fn(); } finally { globalThis.fetch = real; } };
+  const reply = (pages) => new Response(JSON.stringify({ query: { pages } }), { status: 200 });
+
+  it("keeps only the requested language and drops dated quotations", () => {
+    const en = wiktionarySection(ENTRY, "English").text;
+    expect(en).toContain("Etymology:"); expect(en).toContain("unplanned, fortunate discovery"); expect(en).not.toContain("Walpole"); expect(en).not.toContain("sérendipité");
+    expect(wiktionarySection(ENTRY, "french").text).toContain("sérendipité");
+    expect(wiktionarySection(ENTRY, "German").languages).toEqual(["English", "French"]);
+  });
+  it("reads an exact entry, and falls back to search then to a clear 'no entry'", async () => {
+    const urls = [];
+    const r = await withFetch(() => lookupWiktionary({}, { word: "Serendipity" }), async (u) => { urls.push(String(u)); return String(u).includes("titles=Serendipity") ? reply([{ title: "Serendipity", missing: true }]) : reply([{ title: "serendipity", extract: ENTRY, fullurl: "https://en.wiktionary.org/wiki/serendipity" }]); });
+    expect(r.word).toBe("serendipity"); expect(r.entry).toContain("fortunate discovery"); expect(urls[1]).toContain("titles=serendipity");   // retried lower-case
+    const miss = await withFetch(() => lookupWiktionary({}, { word: "qwzxv" }), async () => reply([]));
+    expect(miss.found).toBe(false);
+    const other = await withFetch(() => lookupWiktionary({}, { word: "serendipity", language: "German" }), async () => reply([{ title: "serendipity", extract: ENTRY, fullurl: "u" }]));
+    expect(other.note).toContain("no German entry"); expect(other.languages_available).toContain("French");
+    expect((await withFetch(() => lookupWiktionary({}, { word: "a" }), async () => { throw new Error("net"); })).error).toContain("couldn't reach");
+    expect((await lookupWiktionary({}, { word: " " })).error).toBe("word is required");
   });
 });

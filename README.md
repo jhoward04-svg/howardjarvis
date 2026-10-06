@@ -133,3 +133,5 @@ Edit or search memories on the Memory page. **✨ Tidy memory** has Claude propo
 ## Wikipedia
 
 Jarvis has a `wikipedia` tool (`src/wiki.js`): one free MediaWiki API call returns the best-matching articles' text, which he quotes and cites (the article links appear under the answer). He is told to use it first for factual questions and web search for anything recent. `detail: "more"` fetches a longer extract of the top article; `lang` picks another language edition. No key is needed; if Wikipedia is unreachable he falls back to web search. `WIKIPEDIA_BASE_URL` overrides the host (for tests).
+
+Wiktionary works the same way (`wiktionary` tool): definitions, etymology, pronunciation and translations for a word, trimmed to the requested language's entry (English by default). `WIKTIONARY_BASE_URL` overrides the host for tests.
